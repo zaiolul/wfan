@@ -1,0 +1,33 @@
+#include "wfs.h"
+
+
+void *cap_thread_func(void *arg)
+{
+    struct wfs_ctx *ctx = (struct wfs_ctx *)arg;
+    wfs_start_capture(ctx);
+    pthread_exit(NULL);
+}
+
+int main(int argc, char *argv[])
+{
+    wfs_debug("--START--\n", NULL);
+    struct wfs_ctx *ctx = wfs_alloc_ctx();
+    pthread_t cap_thread, comm_thread;
+
+    if (ctx == NULL) {
+        fprintf(stderr, "Failed to allocate memory for context\n");
+        return EXIT_FAILURE;
+    }
+
+    parse_args(argc, argv, ctx);
+    if (wfs_setup_device(ctx)) {
+        fprintf(stderr, "Failed to setup pcap on device\n");
+        return EXIT_FAILURE;
+    }
+
+    pthread_create(&cap_thread, NULL, &cap_thread_func, ctx);
+    wfs_start_capture(ctx);
+    open_cmd_sock();
+    wfs_free_ctx(ctx);
+    return EXIT_SUCCESS;
+}
