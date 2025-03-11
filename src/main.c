@@ -1,6 +1,5 @@
 #include "wfs.h"
 
-
 void *cap_thread_func(void *arg)
 {
     struct wfs_ctx *ctx = (struct wfs_ctx *)arg;
@@ -25,9 +24,9 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    pthread_create(&cap_thread, NULL, &cap_thread_func, ctx);
+    // pthread_create(&cap_thread, NULL, &cap_thread_func, ctx);
     wfs_start_capture(ctx);
-    open_cmd_sock();
+    // open_cmd_sock();
     wfs_free_ctx(ctx);
     return EXIT_SUCCESS;
 }

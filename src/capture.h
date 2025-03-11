@@ -1,0 +1,118 @@
+#ifndef CAPTURE_H
+#define CAPTURE_H
+
+#include <sys/types.h>
+
+#define CAP_BUF_SIZE 8096
+
+enum radiotap_present_flags {
+    RADIOTAP_TSFT = 0,
+    RADIOTAP_FLAGS = 1,
+    RADIOTAP_RATE = 2,
+    RADIOTAP_CHANNEL = 3,
+    RADIOTAP_FHSS = 4,
+    RADIOTAP_ANTENNA_SIGNAL = 5,
+    RADIOTAP_NOISE = 6,
+    
+    RADIOTAP_EXT = 31,
+};
+
+#define RADIOTAP_MAX  RADIOTAP_NOISE + 1 // Don't care about others
+
+struct radiotap_entry {
+    u_int8_t align;
+    u_int8_t size;
+};
+
+struct radiotap_entry radiotap_entries[] = {
+    {8, 8}, // TSFT
+    {1, 1}, // Flags
+    {1, 1}, // Rate
+    {2, 4}, // Channel
+    {2, 2}, // FHSS
+    {1, 1}, // Antenna signal
+    {1, 1}, // Noise
+};
+ 
+struct radiotap_header {
+    u_int8_t version;
+    u_int8_t padding;
+    u_int16_t length;
+    u_int32_t present_flags;
+};
+
+struct radio_info {
+    u_int16_t channel_freq;
+    int8_t antenna_signal;
+    int8_t noise;
+};
+
+#define RADIOTAP_HAS_FLAG(hdr, flag) (hdr->present_flags & (1 << flag))
+
+//has to be this way due to endianess?
+struct wifi_frame_control {
+    u_int16_t flags : 8;
+    u_int16_t subtype : 4;
+    u_int16_t version : 2;
+    u_int16_t type : 2;
+};
+
+struct wifi_mgmt_header {
+    struct wifi_frame_control ctrl;
+    u_int16_t id;
+    u_int8_t addr1[6];
+    u_int8_t addr2[6];
+    u_int8_t addr3[6];
+    u_int16_t seq_ctl;
+};
+
+struct wifi_data_header {
+    struct wifi_frame_control ctrl;
+    u_int16_t id;
+    u_int8_t addr1[6];
+    u_int8_t addr2[6];
+    u_int8_t addr3[6];
+    u_int16_t seq_ctl;
+};
+
+struct wifi_data_qos_header {
+    struct wifi_frame_control ctrl;
+    u_int16_t id;
+    u_int8_t addr1[6];
+    u_int8_t addr2[6];
+    u_int8_t addr3[6];
+    u_int16_t seq_ctl;
+    u_int16_t qos_ctl;
+};
+
+struct wifi_data_frame_header {
+    struct wifi_frame_control ctrl;
+    u_int16_t id;
+    u_int8_t addr1[6];
+    u_int8_t addr2[6];
+    u_int8_t addr3[6];
+    u_int16_t seq_ctl;
+};
+
+struct wifi_beacon_fixed_parameters {
+    u_int64_t timestamp;
+    u_int16_t interval;
+    u_int16_t capabilities;
+};
+
+struct wifi_tag_param_header {
+    u_int8_t tag;
+    u_int8_t length;
+};
+
+enum tagged_params {
+    TAG_SSID = 0x00,
+    //expand if needed
+};
+
+#define MAC_BYTES(mac) (mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
+#define RADIOTAP_BAND_24(hdr) (hdr->data.channel_flags & (1 << 7)) 
+#define RADIOTAP_BAND_5(hdr) (hdr->data.channel_flags & (1 << 8)) 
+
+
+#endif

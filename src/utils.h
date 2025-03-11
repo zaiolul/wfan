@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <linux/bits.h>
 
 
 #ifdef DEBUG
@@ -15,29 +14,6 @@
     do { } while (0);
 #endif
 
-#define CAP_BUF_SIZE 8096
-
-
-struct radiotap_data {
-    u_int8_t flags;
-    u_int8_t rate; 
-    u_int16_t channel_freq;
-    u_int16_t channel_flags;
-    int8_t antenna_signal;
-    u_int8_t antenna;
-    u_int16_t rx_flags;
-};
-
-struct hdr_radiotap {
-    u_int8_t version;
-    u_int8_t padding;
-    u_int16_t length;
-    u_int32_t present_flags;
-    struct radiotap_data data;
-};
-
-#define RADIOTAP_BAND_24(hdr) (hdr->data.channel_flags & (1 << 7)) 
-#define RADIOTAP_BAND_5(hdr) (hdr->data.channel_flags & (1 << 8)) 
 
 enum frame_subtypes {
     FRAME_SUBTYPE_ASSOC_REQ = 0,
@@ -69,4 +45,7 @@ void set_error_msg(const char *msg, ...);
 
 char *wfs_mgmt_frame_to_str(enum frame_subtypes subtype);
 char *wfs_frame_type_to_str(enum frame_types type);
+
+void wfs_print_mac(u_int8_t *mac);
+
 #endif
