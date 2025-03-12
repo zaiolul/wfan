@@ -18,6 +18,7 @@ enum radiotap_present_flags {
 };
 
 #define RADIOTAP_MAX  RADIOTAP_NOISE + 1 // Don't care about others
+#define RADIOTAP_FIRST RADIOTAP_TSFT
 
 struct radiotap_entry {
     u_int8_t align;
@@ -25,13 +26,13 @@ struct radiotap_entry {
 };
 
 struct radiotap_entry radiotap_entries[] = {
-    {8, 8}, // TSFT
-    {1, 1}, // Flags
-    {1, 1}, // Rate
-    {2, 4}, // Channel
-    {2, 2}, // FHSS
-    {1, 1}, // Antenna signal
-    {1, 1}, // Noise
+    [RADIOTAP_TSFT] = {8, 8}, // TSFT
+    [RADIOTAP_FLAGS] = {1, 1}, // Flags
+    [RADIOTAP_RATE] = {1, 1}, // Rate
+    [RADIOTAP_CHANNEL] = {2, 4}, // Channel
+    [RADIOTAP_FHSS] = {2, 2}, // FHSS
+    [RADIOTAP_ANTENNA_SIGNAL] = {1, 1}, // Antenna signal
+    [RADIOTAP_NOISE] = {1, 1}, // Noise
 };
  
 struct radiotap_header {

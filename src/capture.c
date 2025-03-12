@@ -30,8 +30,10 @@ static void wfs_apply_field_pad(enum radiotap_present_flags flag, u_int8_t *offs
     *data += pad;
 }
 
-static int wfs_parse_radiotap(struct radiotap_header *radiotap, struct radio_info *info) 
+static int wfs_parse_radiotap(u_int8_t *packet, struct radio_info *info)
 {
+    struct radiotap_header *radiotap = (struct radiotap_header *)packet;
+    
     u_int8_t offset = 0;
     u_int8_t *data = (u_int8_t *)radiotap + sizeof(struct radiotap_header);
     u_int32_t *present_flags = &radiotap->present_flags;
@@ -44,52 +46,34 @@ static int wfs_parse_radiotap(struct radiotap_header *radiotap, struct radio_inf
         present_flags ++;
     }
 
-    if (RADIOTAP_HAS_FLAG(radiotap, RADIOTAP_TSFT)) {
-        wfs_apply_field_pad(RADIOTAP_TSFT, &offset, &data);
-        
-        offset += radiotap_entries[RADIOTAP_TSFT].size;
-        data += radiotap_entries[RADIOTAP_TSFT].size;
+    //ugly but it does it's best :)
+    for (int i = RADIOTAP_FIRST; i < RADIOTAP_MAX; i ++) {
+
+        if (!RADIOTAP_HAS_FLAG(radiotap, i))
+            continue;
+
+        wfs_apply_field_pad(i, &offset, &data);
+
+        switch(i) {
+            case RADIOTAP_ANTENNA_SIGNAL:
+                info->antenna_signal = *(int8_t *)data;
+                break;
+            case RADIOTAP_CHANNEL:
+                info->channel_freq = *(u_int16_t *)data;
+                break;
+            case RADIOTAP_NOISE:
+                info->noise = *(int8_t *)data;
+                break;
+            //add fields as needed
+            default:
+                break;
+        }
+
+        offset += radiotap_entries[i].size;
+        data += radiotap_entries[i].size;
     }
 
-    if (RADIOTAP_HAS_FLAG(radiotap, RADIOTAP_FLAGS)) {
-        //ignored
-        offset += radiotap_entries[RADIOTAP_FLAGS].size;
-        data += radiotap_entries[RADIOTAP_FLAGS].size;
-    }
-
-    if (RADIOTAP_HAS_FLAG(radiotap, RADIOTAP_RATE)) {
-        //ignored
-        offset += radiotap_entries[RADIOTAP_RATE].size;
-        data += radiotap_entries[RADIOTAP_RATE].size;
-    }
-
-    if (RADIOTAP_HAS_FLAG(radiotap, RADIOTAP_CHANNEL)) {
-        wfs_apply_field_pad(RADIOTAP_CHANNEL, &offset, &data);
-
-        info->channel_freq = *(u_int16_t *)data;
-        offset += radiotap_entries[RADIOTAP_CHANNEL].size;
-        data += radiotap_entries[RADIOTAP_CHANNEL].size;
-        //we do not care about channel flags
-    }
-    
-    if (RADIOTAP_HAS_FLAG(radiotap, RADIOTAP_FHSS)) {
-        offset += radiotap_entries[RADIOTAP_FHSS].size;
-        data += radiotap_entries[RADIOTAP_FHSS].size;
-    }
-    
-    if (RADIOTAP_HAS_FLAG(radiotap, RADIOTAP_ANTENNA_SIGNAL)) {
-        info->antenna_signal = *(int8_t *)data;
-        offset += radiotap_entries[RADIOTAP_ANTENNA_SIGNAL].size;
-        data += radiotap_entries[RADIOTAP_ANTENNA_SIGNAL].size;
-    }
-
-    if (RADIOTAP_HAS_FLAG(radiotap, RADIOTAP_NOISE)) {
-        info->noise = *(int8_t *)data;
-        offset += radiotap_entries[RADIOTAP_NOISE].size;
-        data += radiotap_entries[RADIOTAP_NOISE].size;
-    }
-
-    return 0;
+    return radiotap->length;
 }
 
 
@@ -148,23 +132,19 @@ static int wfs_parse_frame(u_int8_t *frame, size_t len)
 
 void wfs_packet_handler(unsigned char *args, const struct pcap_pkthdr *header, const unsigned char *packet) 
 {
-    struct radiotap_header *radiotap = (struct radiotap_header *)packet;
     struct radio_info info = {0};
     u_int8_t *frame;
-
+    int ret;
     if (header->len < sizeof(struct radiotap_header))
         return;
 
-    if (!radiotap->present_flags || !radiotap->length)
+    ret = wfs_parse_radiotap(packet, &info);
+    if (ret < 0) 
         return;
-    
-    if (wfs_parse_radiotap(radiotap, &info)) {
-        return;
-    }
  
-    frame = packet + radiotap->length;
+    frame = packet + ret;
 
-    wfs_parse_frame(frame, header->len - radiotap->length); 
+    wfs_parse_frame(frame, header->len - ret); 
 
     if (!info.antenna_signal)
         return;
