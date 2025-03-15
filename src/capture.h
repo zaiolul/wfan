@@ -2,7 +2,7 @@
 #define CAPTURE_H
 
 #include <sys/types.h>
-
+#include <pcap/pcap.h>
 #define CAP_BUF_SIZE 8096
 
 enum radiotap_present_flags {
@@ -25,16 +25,6 @@ struct radiotap_entry {
     u_int8_t size;
 };
 
-struct radiotap_entry radiotap_entries[] = {
-    [RADIOTAP_TSFT] = {8, 8}, // TSFT
-    [RADIOTAP_FLAGS] = {1, 1}, // Flags
-    [RADIOTAP_RATE] = {1, 1}, // Rate
-    [RADIOTAP_CHANNEL] = {2, 4}, // Channel
-    [RADIOTAP_FHSS] = {2, 2}, // FHSS
-    [RADIOTAP_ANTENNA_SIGNAL] = {1, 1}, // Antenna signal
-    [RADIOTAP_NOISE] = {1, 1}, // Noise
-};
- 
 struct radiotap_header {
     u_int8_t version;
     u_int8_t padding;
@@ -115,5 +105,7 @@ enum tagged_params {
 #define RADIOTAP_BAND_24(hdr) (hdr->data.channel_flags & (1 << 7)) 
 #define RADIOTAP_BAND_5(hdr) (hdr->data.channel_flags & (1 << 8)) 
 
+pcap_t * wfs_pcap_setup(char *device) ;
+void wfs_pcap_close(pcap_t *handle);
 
 #endif

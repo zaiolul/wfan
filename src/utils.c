@@ -60,6 +60,7 @@ struct wfs_ctx *wfs_alloc_ctx() {
 }
 
 void wfs_free_ctx(struct wfs_ctx *ctx){
+    wfs_pcap_close(ctx->handle);
     free(ctx->dev);
     free(ctx);
 }

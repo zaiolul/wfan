@@ -1,21 +1,43 @@
-#include "wfs.h"
 #include "capture.h"
+#include "utils.h"
 
 static double rssi_avg = 0;
 static int rssi_count = 0;
 static int avg_count = 0;
 
-int wfs_setup_device(struct wfs_ctx *ctx) 
+struct radiotap_entry radiotap_entries[] = {
+    [RADIOTAP_TSFT] = {8, 8}, // TSFT
+    [RADIOTAP_FLAGS] = {1, 1}, // Flags
+    [RADIOTAP_RATE] = {1, 1}, // Rate
+    [RADIOTAP_CHANNEL] = {2, 4}, // Channel
+    [RADIOTAP_FHSS] = {2, 2}, // FHSS
+    [RADIOTAP_ANTENNA_SIGNAL] = {1, 1}, // Antenna signal
+    [RADIOTAP_NOISE] = {1, 1}, // Noise
+};
+ 
+pcap_t * wfs_pcap_setup(char *device) 
 {
     char err_msg[PCAP_ERRBUF_SIZE];
+    int ret;
+    pcap_t *handle;
 
-    ctx->handle = pcap_open_live(ctx->dev, CAP_BUF_SIZE, 0,  1, err_msg);
-    if (ctx->handle == NULL) {
-        fprintf(stderr, "Failed to open device %s: %s\n", ctx->dev, err_msg);
-        return PCAP_ERROR;
+    handle = pcap_open_live(device, CAP_BUF_SIZE, 0,  1, err_msg);
+    if (handle == NULL) {
+        fprintf(stderr, "Failed to create handle: %s\n", err_msg);
+        return NULL;
     }
 
-    return 0;
+    wfs_debug("Created pcap handle\n", NULL);
+    
+    return handle;
+}
+
+void wfs_pcap_close(pcap_t *handle)
+{
+    if (!handle)
+       return;
+    
+    pcap_close(handle);
 }
 
 static void wfs_apply_field_pad(enum radiotap_present_flags flag, u_int8_t *offset, u_int8_t **data)
@@ -163,10 +185,14 @@ void wfs_packet_handler(unsigned char *args, const struct pcap_pkthdr *header, c
 
 }
 
-int wfs_start_capture(struct wfs_ctx *ctx) 
+int wfs_start_capture(pcap_t *handle) 
 {
+    if (!handle)
+        return PCAP_ERROR;
+    wfs_debug("Start packet capture\n", NULL);
+
     while (1)
-        pcap_dispatch(ctx->handle, 0, wfs_packet_handler, NULL);
-    pcap_close(ctx->handle);
+        pcap_dispatch(handle, 0, wfs_packet_handler, NULL);
+    pcap_close(handle);
     return 0;
 }
