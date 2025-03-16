@@ -23,39 +23,33 @@ enum radiotap_present_flags {
 struct radiotap_entry {
     u_int8_t align;
     u_int8_t size;
-};
+}__attribute__((packed));
 
 struct radiotap_header {
     u_int8_t version;
     u_int8_t padding;
     u_int16_t length;
     u_int32_t present_flags;
-};
-
-struct radio_info {
-    u_int16_t channel_freq;
-    int8_t antenna_signal;
-    int8_t noise;
-};
+}__attribute__((packed));
 
 #define RADIOTAP_HAS_FLAG(hdr, flag) (hdr->present_flags & (1 << flag))
 
 //has to be this way due to endianess?
 struct wifi_frame_control {
-    u_int16_t flags : 8;
-    u_int16_t subtype : 4;
     u_int16_t version : 2;
     u_int16_t type : 2;
-};
+    u_int16_t subtype : 4;
+    u_int16_t flags : 8;
+}__attribute__((packed));
 
-struct wifi_mgmt_header {
+struct wifi_beacon_header {
     struct wifi_frame_control ctrl;
     u_int16_t id;
     u_int8_t addr1[6];
     u_int8_t addr2[6];
     u_int8_t addr3[6];
     u_int16_t seq_ctl;
-};
+}__attribute__((packed));
 
 struct wifi_data_header {
     struct wifi_frame_control ctrl;
@@ -64,7 +58,7 @@ struct wifi_data_header {
     u_int8_t addr2[6];
     u_int8_t addr3[6];
     u_int16_t seq_ctl;
-};
+}__attribute__((packed));
 
 struct wifi_data_qos_header {
     struct wifi_frame_control ctrl;
@@ -74,7 +68,7 @@ struct wifi_data_qos_header {
     u_int8_t addr3[6];
     u_int16_t seq_ctl;
     u_int16_t qos_ctl;
-};
+}__attribute__((packed));
 
 struct wifi_data_frame_header {
     struct wifi_frame_control ctrl;
@@ -83,24 +77,45 @@ struct wifi_data_frame_header {
     u_int8_t addr2[6];
     u_int8_t addr3[6];
     u_int16_t seq_ctl;
-};
+}__attribute__((packed));
 
-struct wifi_beacon_fixed_parameters {
+struct wifi_beacon_fixed_params {
     u_int64_t timestamp;
     u_int16_t interval;
     u_int16_t capabilities;
-};
+}__attribute__((packed));
 
-struct wifi_tag_param_header {
-    u_int8_t tag;
+struct wifi_tag_param {
+    u_int8_t id;
     u_int8_t length;
-};
+}__attribute__((packed));
 
 enum tagged_params {
     TAG_SSID = 0x00,
     //expand if needed
 };
 
+struct radio_info {
+    u_int16_t channel_freq;
+    int8_t antenna_signal;
+    int8_t noise;
+};
+struct wifi_ap_info {
+    u_int8_t ssid[32];
+    u_int8_t bssid[6];
+    u_int64_t timestamp;
+};
+
+struct wfs_pkt_info {
+    struct radio_info radio; 
+    u_int8_t id; // received frame type + subtype combo for union below
+    union {
+        struct wifi_ap_info ap;
+        // possibility to expand maybe
+    };
+};
+
+#define FRAME_ID(type, subtype) (type | subtype << 4)
 #define MAC_BYTES(mac) (mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
 #define RADIOTAP_BAND_24(hdr) (hdr->data.channel_flags & (1 << 7)) 
 #define RADIOTAP_BAND_5(hdr) (hdr->data.channel_flags & (1 << 8)) 

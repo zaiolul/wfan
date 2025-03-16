@@ -28,7 +28,10 @@ int main(int argc, char *argv[])
     }
 
     // pthread_create(&cap_thread, NULL, &cap_thread_func, ctx);
-    wfs_start_capture(ctx->handle);
+
+    wfs_start_capture(ctx->handle); // loop
+    wfs_pcap_close(ctx->handle);
+
     // open_cmd_sock();
     wfs_free_ctx(ctx);
     return EXIT_SUCCESS;
