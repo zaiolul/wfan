@@ -165,7 +165,7 @@ static int wfs_parse_tags(struct wfs_pkt_info *wfs_info, u_int8_t *frame_data, s
         switch (tag->id) {
             case TAG_SSID:
                 memcpy(wfs_info->ap.ssid, ptr, tag->length);
-                wfs_debug("SSID: %s\n", buf);
+                wfs_debug("SSID: %s\n", wfs_info->ap.ssid);
                 break;
             default:
                 break;
