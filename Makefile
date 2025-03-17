@@ -1,7 +1,7 @@
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS = -Wall -g $(EXTRA_CFLAGS)
-LDFLAGS = -lpcap -lpthread $(EXTRA_LDFLAGS)
+LDFLAGS = -lpcap -lpthread -lmosquitto $(EXTRA_LDFLAGS)
 
 BUILD_DIR = build
 SRC_DIR = src

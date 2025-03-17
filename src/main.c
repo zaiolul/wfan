@@ -28,6 +28,9 @@ int main(int argc, char *argv[])
     }
 
     // pthread_create(&cap_thread, NULL, &cap_thread_func, ctx);
+    //disable for now
+    // if (wfs_mqtt_run())
+    //     return EXIT_FAILURE;
 
     wfs_start_capture(ctx->handle); // loop
     wfs_pcap_close(ctx->handle);

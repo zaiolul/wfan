@@ -20,6 +20,7 @@ void parse_args(int argc, char *argv[], struct wfs_ctx *ctx);
 struct wfs_ctx *wfs_alloc_ctx();
 void wfs_free_ctx(struct wfs_ctx *ctx);
 int wfs_start_capture(pcap_t *ctx);
+int wfs_mqtt_run();
 
 void open_cmd_sock();
 #endif
