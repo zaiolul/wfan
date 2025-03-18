@@ -10,6 +10,7 @@ static int avg_count = 0;
 static FILE *dumpfile;
 #define SNAP_LEN 1300
 #define BUFFER_SIZE 10  
+
 typedef struct {
     u_int32_t ts_sec;
     u_int32_t ts_usec;
@@ -217,8 +218,9 @@ static int wfs_parse_frame(struct wfs_pkt_info *wfs_info, u_int8_t *frame, size_
     return ret;
 }
 
-void wfs_packet_handler(unsigned char *args, const struct pcap_pkthdr *header, const unsigned char *packet) 
+static void wfs_packet_handler(unsigned char *args, const struct pcap_pkthdr *header, const unsigned char *packet) 
 {
+    struct wifi_ap_info *ap_list = (struct wifi_ap_info *)args;
     struct wfs_pkt_info wfs_info = {0};
     u_int8_t *frame;
     int radiotap_len;
@@ -266,7 +268,7 @@ void wfs_packet_handler(unsigned char *args, const struct pcap_pkthdr *header, c
 }
 
 int wfs_start_capture(pcap_t *handle) 
-{
+{  
     if (!handle)
         return PCAP_ERROR;
     wfs_debug("Start packet capture\n", NULL);

@@ -3,6 +3,8 @@
 
 #include <sys/types.h>
 #include <pcap/pcap.h>
+#include <time.h>
+
 #define CAP_BUF_SIZE 8096
 
 enum radiotap_present_flags {
@@ -115,10 +117,15 @@ struct wfs_pkt_info {
     };
 };
 
+#define AP_MAX 32
+
 #define FRAME_ID(type, subtype) (type | subtype << 4)
 #define MAC_BYTES(mac) (mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
 #define RADIOTAP_BAND_24(hdr) (hdr->data.channel_flags & (1 << 7)) 
 #define RADIOTAP_BAND_5(hdr) (hdr->data.channel_flags & (1 << 8)) 
+
+
+#define AP_MONITOR_TIME_MS 5000
 
 pcap_t * wfs_pcap_setup(char *device) ;
 void wfs_pcap_close(pcap_t *handle);

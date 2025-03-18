@@ -53,7 +53,7 @@ void parse_args(int argc, char *argv[], struct wfs_ctx *ctx)
     wfs_debug("Channels: %d\n", ctx->n_chans);
 }
 
-struct wfs_ctx *wfs_alloc_ctx() {
+struct wfs_ctx *wfs_alloc_scan_ctx() {
     struct wfs_ctx *ctx = malloc(sizeof(struct wfs_ctx));
     memset(ctx, 0, sizeof(struct wfs_ctx));
     return ctx;
