@@ -3,7 +3,7 @@
 void *cap_thread_func(void *arg)
 {
     struct wfs_ctx *ctx = (struct wfs_ctx *)arg;
-    wfs_start_capture(ctx->handle);
+    wfs_start_capture(ctx->dev);
     pthread_exit(NULL);
 }
 
@@ -21,21 +21,15 @@ int main(int argc, char *argv[])
     }
 
     parse_args(argc, argv, ctx);
-    ctx->handle = wfs_pcap_setup(ctx->dev);
-    if (!ctx->handle) {
-        fprintf(stderr, "Failed to setup pcap on device\n");
-        return EXIT_FAILURE;
-    }
-
     // pthread_create(&cap_thread, NULL, &cap_thread_func, ctx);
     //disable for now
     // if (wfs_mqtt_run())
     //     return EXIT_FAILURE;
 
-    wfs_start_capture(ctx->handle); // loop
-    wfs_pcap_close(ctx->handle);
+    wfs_start_capture(ctx->dev); // loop
 
     // open_cmd_sock();
+    wfs_stop_capture();
     wfs_free_ctx(ctx);
     return EXIT_SUCCESS;
 }

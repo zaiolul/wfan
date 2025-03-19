@@ -3,7 +3,18 @@
 
 #include <sys/types.h>
 #include <pcap/pcap.h>
+#include <time.h>
+
 #define CAP_BUF_SIZE 8096
+
+typedef enum wfs_capture_state {
+    STATE_IDLE,
+    STATE_AP_SEARCH_START,
+    STATE_AP_SEARCH_LOOP,
+    STATE_PKT_CAP,
+    STATE_SEND,
+    STATE_MAX,
+} cap_state_t;
 
 enum radiotap_present_flags {
     RADIOTAP_TSFT = 0,
@@ -108,19 +119,46 @@ struct wifi_ap_info {
 
 struct wfs_pkt_info {
     struct radio_info radio; 
-    u_int8_t id; // received frame type + subtype combo for union below
-    union {
-        struct wifi_ap_info ap;
-        // possibility to expand maybe
-    };
+    struct wifi_ap_info ap;
+};
+
+#define AP_MAX 32
+#define PKT_MAX 1024
+
+enum wfs_send_payload_type {
+    AP_LIST,
+    PKT_LIST,
+};
+
+struct wfs_capture_ctx {
+    struct wifi_ap_info ap_list[AP_MAX];
+    size_t ap_count;
+    struct wfs_pkt_info pkt_list[PKT_MAX];
+    size_t pkt_count;
+    enum wfs_send_payload_type payload;
+    enum wfs_capture_state state;
+    enum wfs_capture_state prev_state;
+
+    struct wifi_ap_info *selected_ap;
+    pcap_t *handle;
+
+    time_t start_time, cur_time;
 };
 
 #define FRAME_ID(type, subtype) (type | subtype << 4)
-#define MAC_BYTES(mac) (mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
+
+#define MAC_FMT "%02x:%02x:%02x:%02x:%02x:%02x"
+
+#define MAC_BYTES(mac) mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+
 #define RADIOTAP_BAND_24(hdr) (hdr->data.channel_flags & (1 << 7)) 
+
 #define RADIOTAP_BAND_5(hdr) (hdr->data.channel_flags & (1 << 8)) 
 
-pcap_t * wfs_pcap_setup(char *device) ;
-void wfs_pcap_close(pcap_t *handle);
+#define AP_SEARCH_TIME_S 3
+#define IDLE_TIME 60
+
+int wfs_start_capture(char *dev);
+int wfs_stop_capture();
 
 #endif
