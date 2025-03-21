@@ -10,43 +10,35 @@
 static struct mqtt_ctx {
     struct mosquitto *mosquitto;
     struct mosquitto_conf config;
+    topic_t *sub_topics;
+    mqtt_cb on_message;
     int cb_count;
 } *ctx;
 
-static const topic_t topics[] = {
-    [TOPIC_APS] = {"ap", 1},
-    [TOPIC_PACKETS] = {"packets", 2},
-    [TOPIC_CMD] = {"cmd", 1},
-};
-
-int mqtt_subscribe_topic(int topic_id)
+int mqtt_is_sub_match(char* sub, char *topic)
 {
-    topic_t topic;
+    bool match_res;
+    int ret;
+    ret = mosquitto_topic_matches_sub(sub, topic, &match_res);
+    return match_res;
+}
 
-    if (topic_id < 0 && topic_id >= TOPIC_MAX)
-        return -1;
-
-    topic = topics[topic_id];
-
+int mqtt_subscribe_topic(topic_t topic)
+{   
     int ret = mosquitto_subscribe(ctx->mosquitto, NULL, topic.name, topic.qos);
-
+    
     if (ret != MOSQ_ERR_SUCCESS)
         printf("Failed subscription: %s, %s\n", topic.name,  mosquitto_strerror(ret));
+    printf("sub %s success\n", topic.name);
     return ret;
 }
 
-int mqtt_publish_topic(int topic_id, payload_t *payload)
+int mqtt_publish_topic(topic_t topic, payload_t payload)
 {
-    topic_t topic;
     int message_id;
-
-    if (topic_id < 0 && topic_id >= TOPIC_MAX)
-        return -1;
-
-    topic = topics[topic_id];
-           
+    printf("publish topic: %s data: %s\n", topic.name, payload.data );
     int ret = mosquitto_publish(ctx->mosquitto, &message_id, topic.name, 
-        payload->len, payload->data, topic.qos, false);
+        payload.len, payload.data, topic.qos, false);
 
     if (ret == MOSQ_ERR_SUCCESS)
         return message_id;
@@ -56,10 +48,10 @@ int mqtt_publish_topic(int topic_id, payload_t *payload)
 }
 
 static void mqtt_cleanup() {
-    if (!ctx->mosquitto)
+    if (!ctx)
         return;
-
-    mosquitto_destroy(ctx->mosquitto);
+    if (ctx->mosquitto)
+        mosquitto_destroy(ctx->mosquitto);
     mosquitto_lib_cleanup();
     free(ctx);
 }
@@ -122,7 +114,9 @@ static int mqtt_read_config()
 
 static void mqtt_on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg)
 {
-    
+    if (!ctx->on_message)
+        return;
+    ctx->on_message(msg->topic, msg->payload, msg->payloadlen);
 }
 
 static void mqtt_on_connect(struct mosquitto *mosquitto, void *obj, int reason_code)
@@ -133,11 +127,10 @@ static void mqtt_on_connect(struct mosquitto *mosquitto, void *obj, int reason_c
 	if(reason_code != 0){
         return;
 	}
-
-    for(int i = 0; i < TOPIC_MAX; i ++) {
-        ret = mqtt_subscribe_topic(i);
-        if (ret != MOSQ_ERR_SUCCESS)
-            printf("Failed to subscribe topic: %s\n", topics[i].name);
+    for(int i = 0; i < MQTT_MAX_TOPICS; i ++) {
+        if (!strlen(ctx->sub_topics[i].name))
+            break;
+        mqtt_subscribe_topic(ctx->sub_topics[i]);
     }
 }
 
@@ -160,36 +153,44 @@ static int mqtt_setup_login()
 }
 //TODO mosquitto tls setup
 
-static int mqtt_setup()
+int mqtt_setup(topic_t *topics, mqtt_cb on_msg_cb)
 {
     int ret;
-
-    if (ctx->mosquitto)
+    if (ctx && ctx->mosquitto)
         return MOSQ_ERR_ALREADY_EXISTS;
 
-    ret = mqtt_read_config();
-
-    if (ret) 
-        return MOSQ_ERR_INVAL;
-
-    if((ret = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS){
+    if ((ret = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS) {
         printf("Can't initialize mosquitto lib\n");
         return ret;
     }
+    printf("init mqtt lib\n");
+    ctx = malloc(sizeof(struct mqtt_ctx));
+    ctx->sub_topics = topics;
+    ctx->on_message = on_msg_cb;
 
+    ret = mqtt_read_config();
+     
+    if (ret) 
+        return MOSQ_ERR_INVAL;
+
+    printf("good 1\n");
     ctx->mosquitto = mosquitto_new(NULL, true, NULL);
     if ((ret = mqtt_setup_login()) != MOSQ_ERR_SUCCESS)
         return ret;
-    
+     printf("good 2\n");
     mosquitto_connect_callback_set(ctx->mosquitto, mqtt_on_connect);
     mosquitto_message_callback_set(ctx->mosquitto, mqtt_on_message);
     mosquitto_publish_callback_set(ctx->mosquitto, mqtt_on_publish);
+
+    printf("Sub topics\n");
+
 
     if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 60)) != MOSQ_ERR_SUCCESS) {
         printf("Can't connect to broker\n");
         return ret;
     }
-
+    
+    printf("mqtt setup done\n");
     return MOSQ_ERR_SUCCESS;
 }
 
@@ -237,9 +238,9 @@ static void mqtt_loop()
 int mqtt_run()
 {
     int ret;
-    if (!ctx->mosquitto)
+    if (!ctx || !ctx->mosquitto)
         return MOSQ_ERR_INVAL;
-        
+    printf("Start MQTT comm\n");
     mqtt_loop();
     mosquitto_disconnect(ctx->mosquitto);
     mqtt_cleanup();

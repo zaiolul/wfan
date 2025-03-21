@@ -1,4 +1,5 @@
 #include "capture.h"
+#include "mosquitto_mqtt.h"
 #include "utils.h"
 #include <fcntl.h>
 #include <unistd.h>
@@ -379,6 +380,16 @@ static char* wfs_capture_state_to_str(enum wfs_capture_state state)
 
 static cap_state_t _do_idle()
 {
+    //send test
+    // topic_t ap_topic = { "data/ap/", 1};
+    // payload_t payload;
+    //  char *test = "aaa";
+    // payload.data = (void *)test;
+    // payload.len = 3;
+    // payload.type=1;
+  
+    // mqtt_publish_topic(ap_topic, payload);
+
     sleep(1);
     return STATE_IDLE;
 }
@@ -424,13 +435,10 @@ static cap_state_t _do_pkt_cap()
 
 static cap_state_t _do_send()
 {
+
     // struct wfs_send_payload *payload = (struct wfs_send_payload*) arg;
     switch (ctx->payload) {
         case AP_LIST:
-            if (ctx->ap_count) {
-                ctx->selected_ap = ctx->ap_list;
-                return STATE_PKT_CAP;
-            }
             return STATE_IDLE;
         break;
         case PKT_LIST:

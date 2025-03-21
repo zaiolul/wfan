@@ -136,6 +136,7 @@ struct wfs_capture_ctx {
     struct wfs_pkt_info pkt_list[PKT_MAX];
     size_t pkt_count;
     enum wfs_send_payload_type payload;
+    u_int32_t payload_len;
     enum wfs_capture_state state;
     enum wfs_capture_state prev_state;
 

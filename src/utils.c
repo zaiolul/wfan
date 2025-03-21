@@ -1,6 +1,9 @@
 
 #include "wfs.h"
 #include <unistd.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <linux/if.h>
 
 void parse_chanlist(char *chanlist, struct wfs_ctx *ctx) {
     char *chanlist_copy = strdup(chanlist);
@@ -109,4 +112,32 @@ char *wfs_frame_type_to_str(enum frame_types type) {
 void wfs_print_mac(u_int8_t *mac)
 { 
     printf(MAC_FMT"\n", MAC_BYTES(mac));
+}
+
+char *set_dev_mac(char *iface, unsigned char *buf)
+{
+    int fd;
+	struct ifreq ifr;
+	
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	ifr.ifr_addr.sa_family = AF_INET;
+	strncpy(ifr.ifr_name , iface , IFNAMSIZ-1);
+
+	ioctl(fd, SIOCGIFHWADDR, &ifr);
+
+	close(fd);
+	
+	memcpy(buf, ifr.ifr_hwaddr.sa_data, 6);
+}
+
+char *get_client_id(char *iface)
+{
+    unsigned char *id = malloc(MAX_ID_LEN);
+    char hostname[MAX_ID_LEN - 15]; //mac + underscore
+    
+    gethostname(hostname, sizeof(hostname));
+    set_dev_mac(iface, id);
+    sprintf(id, "%s_"MAC_FMT, hostname, MAC_BYTES(id));
+    return id;
 }

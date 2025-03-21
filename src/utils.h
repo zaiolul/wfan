@@ -14,6 +14,7 @@
     do { } while (0);
 #endif
 
+#define MAX_ID_LEN 32
 
 enum frame_subtypes {
     FRAME_SUBTYPE_ASSOC_REQ = 0,
@@ -47,5 +48,6 @@ char *wfs_mgmt_frame_to_str(enum frame_subtypes subtype);
 char *wfs_frame_type_to_str(enum frame_types type);
 
 void wfs_print_mac(u_int8_t *mac);
+char *get_client_id(char *iface);
 
 #endif
