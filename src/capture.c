@@ -40,7 +40,7 @@
 //     .linktype = 127};
 // static int buf_index = 0;
 
-static struct wfs_capture_ctx *ctx;
+static struct capture_ctx *ctx;
 
 static cap_state_t _do_idle();
 static cap_state_t _do_ap_search_start();
@@ -69,7 +69,7 @@ struct radiotap_entry radiotap_entries[] = {
     [RADIOTAP_NOISE] = {1, 1},          // Noise
 };
 
-pcap_t *wfs_pcap_setup(char *device)
+pcap_t *cap_pcap_setup(char *device)
 {
     char err_msg[PCAP_ERRBUF_SIZE];
     int ret;
@@ -104,7 +104,7 @@ pcap_t *wfs_pcap_setup(char *device)
     return handle;
 }
 
-void wfs_pcap_close(pcap_t *handle)
+void cap_pcap_close(pcap_t *handle)
 {
     if (!handle)
         return;
@@ -112,7 +112,7 @@ void wfs_pcap_close(pcap_t *handle)
     pcap_close(handle);
 }
 
-static void wfs_apply_field_pad(enum radiotap_present_flags flag, u_int8_t *offset, u_int8_t **data)
+static void cap_apply_field_pad(enum radiotap_present_flags flag, u_int8_t *offset, u_int8_t **data)
 {
     u_int8_t rem = *offset % radiotap_entries[flag].align;
 
@@ -124,7 +124,7 @@ static void wfs_apply_field_pad(enum radiotap_present_flags flag, u_int8_t *offs
     *data += pad;
 }
 
-static int wfs_parse_radiotap(struct wfs_pkt_info *wfs_info, u_int8_t *packet)
+static int cap_parse_radiotap(struct cap_pkt_info *cap_info, u_int8_t *packet)
 {
     struct radiotap_header *radiotap = (struct radiotap_header *)packet;
 
@@ -148,18 +148,18 @@ static int wfs_parse_radiotap(struct wfs_pkt_info *wfs_info, u_int8_t *packet)
         if (!RADIOTAP_HAS_FLAG(radiotap, i))
             continue;
 
-        wfs_apply_field_pad(i, &offset, &data);
+        cap_apply_field_pad(i, &offset, &data);
 
         switch (i)
         {
         case RADIOTAP_ANTENNA_SIGNAL:
-            wfs_info->radio.antenna_signal = *(int8_t *)data;
+            cap_info->radio.antenna_signal = *(int8_t *)data;
             break;
         case RADIOTAP_CHANNEL:
-            wfs_info->radio.channel_freq = *(u_int16_t *)data;
+            cap_info->radio.channel_freq = *(u_int16_t *)data;
             break;
         case RADIOTAP_NOISE:
-            wfs_info->radio.noise = *(int8_t *)data;
+            cap_info->radio.noise = *(int8_t *)data;
             break;
         // add fields as needed
         default:
@@ -173,7 +173,7 @@ static int wfs_parse_radiotap(struct wfs_pkt_info *wfs_info, u_int8_t *packet)
     return radiotap->length;
 }
 
-static void wfs_parse_beacon_tags(struct wfs_pkt_info *wfs_info, u_int8_t *frame_data, size_t data_len)
+static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame_data, size_t data_len)
 {
     struct wifi_beacon_fixed_params *fixed_params = (struct wifi_beacon_fixed_params *)frame_data;
     u_int8_t *ptr = frame_data + sizeof(struct wifi_beacon_fixed_params);
@@ -189,7 +189,7 @@ static void wfs_parse_beacon_tags(struct wfs_pkt_info *wfs_info, u_int8_t *frame
         switch (tag->id)
         {
         case TAG_SSID:
-            memcpy(wfs_info->ap.ssid, ptr, tag->length);
+            memcpy(cap_info->ap.ssid, ptr, tag->length);
             // wfs_debug("SSID: %s\n", wfs_info->ap.ssid);
             break;
         default:
@@ -200,7 +200,7 @@ static void wfs_parse_beacon_tags(struct wfs_pkt_info *wfs_info, u_int8_t *frame
     }
 }
 
-static void wfs_parse_mgmt_frame(struct wfs_pkt_info *wfs_info, u_int8_t *frame, size_t len)
+static void cap_parse_mgmt_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_t len)
 {
     struct wifi_frame_control *ctrl = (struct wifi_frame_control *)frame;
     switch (ctrl->subtype)
@@ -208,8 +208,8 @@ static void wfs_parse_mgmt_frame(struct wfs_pkt_info *wfs_info, u_int8_t *frame,
     case FRAME_SUBTYPE_BEACON:
         struct wifi_beacon_header *beacon = (struct wifi_beacon_header *)frame;
         u_int8_t *data = (u_int8_t *)beacon + sizeof(struct wifi_beacon_header);
-        memcpy(&(wfs_info->ap.bssid[0]), &(beacon->addr3[0]), 6);
-        wfs_parse_beacon_tags(wfs_info, data, len - sizeof(struct wifi_beacon_header));
+        memcpy(&(cap_info->ap.bssid[0]), &(beacon->addr3[0]), 6);
+        cap_parse_beacon_tags(cap_info, data, len - sizeof(struct wifi_beacon_header));
         break;
     // ignore others for now
     default:
@@ -217,7 +217,7 @@ static void wfs_parse_mgmt_frame(struct wfs_pkt_info *wfs_info, u_int8_t *frame,
     }
 }
 
-static int wfs_parse_frame(struct wfs_pkt_info *wfs_info, u_int8_t *frame, size_t len)
+static int cap_parse_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_t len)
 {
     int ret;
 
@@ -230,7 +230,7 @@ static int wfs_parse_frame(struct wfs_pkt_info *wfs_info, u_int8_t *frame, size_
     {
     case FRAME_TYPE_MGMT:
         wfs_debug("-MANAGEMENT FRAME-\n", NULL);
-        wfs_parse_mgmt_frame(wfs_info, frame, len);
+        cap_parse_mgmt_frame(cap_info, frame, len);
         break;
     case FRAME_TYPE_CTRL:
     case FRAME_TYPE_DATA:
@@ -250,7 +250,7 @@ static int bssid_equal(u_int8_t *a, u_int8_t *b)
     return 1;
 }
 
-static int wfs_add_ap(struct wifi_ap_info *ap)
+static int cap_add_ap(struct wifi_ap_info *ap)
 {
     for (int i = 0; i < ctx->ap_count; i ++) {
         if (bssid_equal(ap->bssid, ctx->ap_list[i].bssid)) {
@@ -267,17 +267,17 @@ static int wfs_add_ap(struct wifi_ap_info *ap)
     return 0;
 }
 
-static int wfs_add_pkt(struct wfs_pkt_info *pkt)
+static int cap_add_pkt(struct cap_pkt_info *pkt)
 {
-    memcpy(&(ctx->pkt_list[ctx->pkt_count++]), pkt, sizeof(struct wfs_pkt_info));
+    memcpy(&(ctx->pkt_list[ctx->pkt_count++]), pkt, sizeof(struct cap_pkt_info));
     wfs_debug("Added pkt info to list\n", ap.ssid);
 
     return 0;
 }
 
-static void wfs_packet_handler(unsigned char *args, const struct pcap_pkthdr *header, const unsigned char *packet)
+static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *header, const unsigned char *packet)
 {
-    struct wfs_pkt_info wfs_info = {0};
+    struct cap_pkt_info cap_info = {0};
     u_int8_t *frame;
     int radiotap_len;
 
@@ -287,37 +287,37 @@ static void wfs_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     if (header->len < sizeof(struct radiotap_header))
         return;
 
-    radiotap_len = wfs_parse_radiotap(&wfs_info, packet);
+    radiotap_len = cap_parse_radiotap(&cap_info, packet);
     if (radiotap_len < 0)
         return;
 
-    if (!wfs_info.radio.antenna_signal)
+    if (!cap_info.radio.antenna_signal)
         return;
 
     frame = packet + radiotap_len;
 
-    if (wfs_parse_frame(&wfs_info, frame, header->len - radiotap_len))
+    if (cap_parse_frame(&cap_info, frame, header->len - radiotap_len))
         return;
 
     //packet has been parsed, do stuff
     switch(ctx->state) {
         case STATE_AP_SEARCH_LOOP:
-            if (wfs_add_ap(&(wfs_info.ap)) < 0) {
-                wfs_debug("Failed to add ap %s\n", wfs_info.ap.ssid);
+            if (cap_add_ap(&(cap_info.ap)) < 0) {
+                wfs_debug("Failed to add ap %s\n", cap_info.ap.ssid);
                 return;
             }
-            printf("added ap %s\n", wfs_info.ap.ssid);
+            printf("added ap %s\n", cap_info.ap.ssid);
             break;
         case STATE_PKT_CAP:
-            if (!bssid_equal(ctx->selected_ap->bssid, wfs_info.ap.bssid))
+            if (!bssid_equal(ctx->selected_ap->bssid, cap_info.ap.bssid))
                 return;
 
-            if (wfs_add_pkt(&wfs_info) < 0) {
-                wfs_debug("Failed to add ap %s\n", wfs_info.ap.ssid);
+            if (cap_add_pkt(&cap_info) < 0) {
+                wfs_debug("Failed to add ap %s\n", cap_info.ap.ssid);
 
                 return;
             }
-            printf("added pkt (%d), rssi %d\n",ctx->pkt_count, wfs_info.radio.antenna_signal);
+            printf("added pkt (%d), rssi %d\n",ctx->pkt_count, cap_info.radio.antenna_signal);
         default:
             break;
     }
@@ -350,14 +350,14 @@ static void wfs_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     // fflush(dumpfile);
 }
 
-static void wfs_print_ap_list(struct wifi_ap_info *ap_list, size_t count)
+static void cap_print_ap_list(struct wifi_ap_info *ap_list, size_t count)
 { 
     for (int i = 0; i < count; i ++) {
         printf("'%s' " MAC_FMT "\n", ap_list[i].ssid, MAC_BYTES(ap_list[i].bssid));
     }
 }
 
-static char* wfs_capture_state_to_str(enum wfs_capture_state state)
+static char* cap_state_to_str(enum cap_capture_state state)
 {
     switch (state) {
         case STATE_AP_SEARCH_START:
@@ -419,7 +419,7 @@ static cap_state_t _do_ap_search_loop()
         }
     }
 
-    pcap_dispatch(ctx->handle, -1, wfs_packet_handler, NULL);
+    pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
     return STATE_AP_SEARCH_LOOP;
 }
 
@@ -429,14 +429,14 @@ static cap_state_t _do_pkt_cap()
         ctx->payload = PKT_LIST;
         return STATE_SEND;
     }
-    pcap_dispatch(ctx->handle,-1, wfs_packet_handler, NULL);
+    pcap_dispatch(ctx->handle,-1, cap_packet_handler, NULL);
     return STATE_PKT_CAP;
 }
 
 static cap_state_t _do_send()
 {
 
-    // struct wfs_send_payload *payload = (struct wfs_send_payload*) arg;
+    // struct cap_send_payload *payload = (struct cap_send_payload*) arg;
     switch (ctx->payload) {
         case AP_LIST:
             return STATE_IDLE;
@@ -449,10 +449,10 @@ static cap_state_t _do_send()
     return STATE_IDLE;
 }
 
-int wfs_start_capture(char *dev)
+int cap_start_capture(char *dev)
 {
-    ctx = malloc(sizeof(struct wfs_capture_ctx));
-    ctx->handle = wfs_pcap_setup(dev);
+    ctx = malloc(sizeof(struct capture_ctx));
+    ctx->handle = cap_pcap_setup(dev);
     if (!ctx->handle) {
         fprintf(stderr, "Failed to setup pcap on device\n");
         return PCAP_ERROR;
@@ -470,8 +470,8 @@ int wfs_start_capture(char *dev)
     return 0;
 }
 
-int wfs_stop_capture()
+int cap_stop_capture()
 {
-    wfs_pcap_close(ctx->handle);
+    cap_pcap_close(ctx->handle);
     free(ctx);
 }

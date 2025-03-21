@@ -68,11 +68,11 @@ int main(int argc, char *argv[])
 
     pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, (void*)ctx->sub_topics);
 
-    wfs_start_capture(ctx->dev); // loop
+    cap_start_capture(ctx->dev); // loop
 
     pthread_join(mqtt_thread, NULL);
     // open_cmd_sock();
-    wfs_stop_capture();
+    cap_stop_capture();
     wfs_free_ctx(ctx);
     return EXIT_SUCCESS;
 }

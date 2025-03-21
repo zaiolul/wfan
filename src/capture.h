@@ -7,7 +7,7 @@
 
 #define CAP_BUF_SIZE 8096
 
-typedef enum wfs_capture_state {
+typedef enum cap_capture_state {
     STATE_IDLE,
     STATE_AP_SEARCH_START,
     STATE_AP_SEARCH_LOOP,
@@ -117,7 +117,7 @@ struct wifi_ap_info {
     u_int64_t timestamp;
 };
 
-struct wfs_pkt_info {
+struct cap_pkt_info {
     struct radio_info radio; 
     struct wifi_ap_info ap;
 };
@@ -125,20 +125,20 @@ struct wfs_pkt_info {
 #define AP_MAX 32
 #define PKT_MAX 1024
 
-enum wfs_send_payload_type {
+enum cap_send_payload_type {
     AP_LIST,
     PKT_LIST,
 };
 
-struct wfs_capture_ctx {
+struct capture_ctx {
     struct wifi_ap_info ap_list[AP_MAX];
     size_t ap_count;
-    struct wfs_pkt_info pkt_list[PKT_MAX];
+    struct cap_pkt_info pkt_list[PKT_MAX];
     size_t pkt_count;
-    enum wfs_send_payload_type payload;
+    enum cap_send_payload_type payload;
     u_int32_t payload_len;
-    enum wfs_capture_state state;
-    enum wfs_capture_state prev_state;
+    enum cap_capture_state state;
+    enum cap_capture_state prev_state;
 
     struct wifi_ap_info *selected_ap;
     pcap_t *handle;
@@ -159,7 +159,7 @@ struct wfs_capture_ctx {
 #define AP_SEARCH_TIME_S 3
 #define IDLE_TIME 60
 
-int wfs_start_capture(char *dev);
-int wfs_stop_capture();
+int cap_start_capture(char *dev);
+int cap_stop_capture();
 
 #endif
