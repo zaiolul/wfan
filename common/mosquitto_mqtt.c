@@ -36,7 +36,9 @@ int mqtt_subscribe_topic(topic_t topic)
 int mqtt_publish_topic(topic_t topic, payload_t payload)
 {
     int message_id;
-    printf("publish topic: %s data: %s\n", topic.name, payload.data );
+    printf("%s()\n", __func__);
+
+    printf("publish topic: %s len: %d\n", topic.name, payload.len);
     int ret = mosquitto_publish(ctx->mosquitto, &message_id, topic.name, 
         payload.len, payload.data, topic.qos, false);
 

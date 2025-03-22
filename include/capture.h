@@ -125,10 +125,18 @@ struct cap_pkt_info {
 #define AP_MAX 32
 #define PKT_MAX 1024
 
-enum cap_send_payload_type {
+typedef enum cap_send_payload_type {
     AP_LIST,
     PKT_LIST,
-};
+} cap_payload_t;
+
+typedef struct cap_msg {
+    cap_payload_t type;
+    void *data;
+    size_t count;
+} cap_msg_t;
+
+typedef void (*cap_send_cb)(cap_msg_t msg);
 
 struct capture_ctx {
     struct wifi_ap_info ap_list[AP_MAX];
@@ -140,17 +148,15 @@ struct capture_ctx {
     enum cap_capture_state state;
     enum cap_capture_state prev_state;
 
-    struct wifi_ap_info *selected_ap;
+    struct wifi_ap_info selected_ap;
     pcap_t *handle;
 
     time_t start_time, cur_time;
+
+    cap_send_cb send_cb;
 };
 
 #define FRAME_ID(type, subtype) (type | subtype << 4)
-
-#define MAC_FMT "%02x:%02x:%02x:%02x:%02x:%02x"
-
-#define MAC_BYTES(mac) mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
 
 #define RADIOTAP_BAND_24(hdr) (hdr->data.channel_flags & (1 << 7)) 
 
@@ -159,7 +165,7 @@ struct capture_ctx {
 #define AP_SEARCH_TIME_S 3
 #define IDLE_TIME 60
 
-int cap_start_capture(char *dev);
+int cap_start_capture(char *dev, cap_send_cb cb);
 int cap_stop_capture();
 
 #endif

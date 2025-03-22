@@ -1,3 +1,5 @@
+#ifndef MOSQUITTO_MQTT_H
+#define MOSQUITTO_MQTT_H
 
 #include <linux/limits.h>
 
@@ -11,9 +13,8 @@ typedef struct mqtt_topic {
 } topic_t;
 
 typedef struct mqtt_payload {
-    u_int8_t type;
-    u_int32_t len;
     void *data;
+    u_int32_t len;
 } payload_t;
 
 #define CONN_RETRY_CNT 5
@@ -32,3 +33,5 @@ int mqtt_publish_topic(topic_t topic, payload_t payload);
 int mqtt_setup(topic_t *topics, mqtt_cb on_msg_cb);
 int mqtt_is_sub_match(char* sub, char *topic);
 int mqtt_run();
+
+#endif

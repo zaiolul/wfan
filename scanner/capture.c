@@ -281,7 +281,7 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     u_int8_t *frame;
     int radiotap_len;
 
-    if (ctx->state == STATE_PKT_CAP && !ctx->selected_ap)
+    if (ctx->state == STATE_PKT_CAP && is_valid_mac(ctx->selected_ap.bssid))
         return;
 
     if (header->len < sizeof(struct radiotap_header))
@@ -309,7 +309,7 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
             printf("added ap %s\n", cap_info.ap.ssid);
             break;
         case STATE_PKT_CAP:
-            if (!bssid_equal(ctx->selected_ap->bssid, cap_info.ap.bssid))
+            if (!bssid_equal(ctx->selected_ap.bssid, cap_info.ap.bssid))
                 return;
 
             if (cap_add_pkt(&cap_info) < 0) {
@@ -380,23 +380,13 @@ static char* cap_state_to_str(enum cap_capture_state state)
 
 static cap_state_t _do_idle()
 {
-    //send test
-    // topic_t ap_topic = { "data/ap/", 1};
-    // payload_t payload;
-    //  char *test = "aaa";
-    // payload.data = (void *)test;
-    // payload.len = 3;
-    // payload.type=1;
-  
-    // mqtt_publish_topic(ap_topic, payload);
-
     sleep(1);
     return STATE_IDLE;
 }
 static cap_state_t _do_ap_search_start()
 {
     memset(ctx->ap_list, 0, sizeof(struct wifi_ap_info) * AP_MAX);
-    ctx->selected_ap = NULL;
+    memset(&(ctx->selected_ap), 0, sizeof(struct wifi_ap_info));
     ctx->ap_count = 0;
 
     time_t t1 = time(&(ctx->start_time));
@@ -415,6 +405,7 @@ static cap_state_t _do_ap_search_loop()
         }
         else {
             printf("No APs found\n");
+
             return STATE_IDLE;
         }
     }
@@ -435,24 +426,44 @@ static cap_state_t _do_pkt_cap()
 
 static cap_state_t _do_send()
 {
+    cap_msg_t msg;
+    msg.type = ctx->payload;
 
-    // struct cap_send_payload *payload = (struct cap_send_payload*) arg;
+
     switch (ctx->payload) {
         case AP_LIST:
-            return STATE_IDLE;
-        break;
+            msg.data = (void*)ctx->ap_list;
+            msg.count = ctx->ap_count;
+            break;
         case PKT_LIST:
-            ctx->pkt_count = 0;
-            return STATE_PKT_CAP;
-        break;
+            msg.data = (void*)ctx->pkt_list;
+            msg.count = ctx->pkt_count;
+            break;
+        default:
+            break;
     }
+
+    if (ctx->send_cb)
+        ctx->send_cb(msg);
+
     return STATE_IDLE;
 }
 
-int cap_start_capture(char *dev)
+//used externally, on some event that isn't handled here
+void cap_set_ap(u_int8_t *ssid, u_int8_t *bssid)
+{
+    memcpy(ctx->selected_ap.ssid, ssid, 32);
+    memcpy(ctx->selected_ap.bssid, bssid, 6);
+
+    ctx->state = STATE_PKT_CAP;
+}
+
+
+int cap_start_capture(char *dev, cap_send_cb cb)
 {
     ctx = malloc(sizeof(struct capture_ctx));
     ctx->handle = cap_pcap_setup(dev);
+    ctx->send_cb = cb;
     if (!ctx->handle) {
         fprintf(stderr, "Failed to setup pcap on device\n");
         return PCAP_ERROR;

@@ -1,71 +1,9 @@
 
-#include "wfs.h"
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <linux/if.h>
-
-void parse_chanlist(char *chanlist, struct wfs_ctx *ctx) {
-    char *chanlist_copy = strdup(chanlist);
-    printf("test");
-    wfs_debug("Chanlist: %s\n", chanlist_copy);
-    char *token = strtok(chanlist_copy, ",");
-    int i = 0;
-    while (token != NULL) {
-        ctx->chanlist[i++] = atoi(token);
-        token = strtok(NULL, ",");
-    }
-    ctx->n_chans = i;
-    free(chanlist_copy);
-}
-
-void parse_args(int argc, char *argv[], struct wfs_ctx *ctx)
-{
-    char *prog_opts = "d:v:c:";
-    int opt;
-
-    while ((opt = getopt(argc, argv, prog_opts)) != -1) {
-        switch (opt) {
-            case 'd':
-                ctx->dev = strdup(optarg);
-                wfs_debug("Device: %s\n", ctx->dev);
-                break;
-            case 'v':
-                printf("wfs version %s\n", WFS_VERSION);
-                break;
-            case 'c':
-                parse_chanlist(optarg, ctx);
-                break;
-            default:
-                printf("Usage: %s [-d device] [-v]\n", argv[0]);
-                exit(EXIT_FAILURE);
-        }
-    }
-    
-    if (!ctx->dev) {
-        printf("Usage: %s [-d device] [-v] -c CHANNEL1,CHANNEL2...\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
-
-    //kazkoks default tokiu atveju
-    if(ctx->n_chans == 0) {
-        ctx->chanlist[0] = 1;
-        ctx->n_chans = 1;
-    }
-
-    wfs_debug("Channels: %d\n", ctx->n_chans);
-}
-
-struct wfs_ctx *wfs_alloc_ctx() {
-    struct wfs_ctx *ctx = malloc(sizeof(struct wfs_ctx));
-    memset(ctx, 0, sizeof(struct wfs_ctx));
-    return ctx;
-}
-
-void wfs_free_ctx(struct wfs_ctx *ctx){
-    free(ctx->dev);
-    free(ctx);
-}
+#include "utils.h"
 
 char *wfs_mgmt_frame_to_str(enum frame_subtypes subtype) {
     switch (subtype) {
@@ -129,6 +67,14 @@ char *set_dev_mac(char *iface, unsigned char *buf)
 	close(fd);
 	
 	memcpy(buf, ifr.ifr_hwaddr.sa_data, 6);
+}
+
+int is_valid_mac(unsigned char* mac)
+{
+    unsigned char empty_mac[] = {0, 0, 0, 0, 0, 0};
+    if (memcmp(mac, empty_mac, 6) == 0)
+        return 1;
+    return 0;
 }
 
 char *get_client_id(char *iface)

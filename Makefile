@@ -1,30 +1,49 @@
 
-CC = $(CROSS_COMPILE)gcc
-CFLAGS = -Wall -g $(EXTRA_CFLAGS)
-LDFLAGS = -lpcap -lpthread -lmosquitto $(EXTRA_LDFLAGS)
+export EXE_SCANNER=wfan_scan
+export EXE_MANAGER=wfan_mgr
+SCANNER_SRC=./scanner
+MANAGER_SRC=./manager
+COMMON_SRC=./common
+INCLUDE_DIR=./include
 
-BUILD_DIR = build
-SRC_DIR = src
+SRCS_COM=$(wildcard $(COMMON_SRC)/*.c)
+OBJS_COM=$(SRCS_COM:$(COMMON_SRC)/%.c=$(COMMON_SRC)/%.o)
 
-SRCS = $(wildcard $(SRC_DIR)/*.c)
+SRCS_SCAN=$(wildcard $(SCANNER_SRC)/*.c)
+OBJS_SCAN=$(SRCS_SCAN:$(SCANNER_SRC)/%.c=$(SCANNER_SRC)/%.o)
 
-OBJS = $(SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+SRCS_MAN=$(wildcard $(MANAGER_SRC)/*.c)
+OBJS_MAN=$(SRCS_MAN:$(MANAGER_SRC)/%.c=$(MANAGER_SRC)/%.o)
 
-TARGET = $(BUILD_DIR)/wfs
+LIBS_COM=-lmosquitto -lpthread
+LIBS_SCAN=$(LIBS_COM) -lpcap
 
-all: $(TARGET)
+all: scanner manager
 
-$(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
+scanner: $(EXE_SCANNER)
 
-# Rule to compile each C file into an object file (.o)
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
-	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+manager: $(EXE_MANAGER)
 
-# Clean rule to remove generated files
+$(EXE_SCANNER): $(OBJS_COM) $(OBJS_SCAN)
+	$(CC) $^ -o $@ $(LIBS_SCAN)
+
+$(EXE_MANAGER): $(OBJS_COM) $(OBJS_MAN)
+	$(CC) $^ -o $@ $(LIBS_COM)
+
+$(COMMON_SRC)/%.o: $(COMMON_SRC)/%.c
+	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@ 
+
+$(SCANNER_SRC)/%.o: $(SCANNER_SRC)/%.c
+	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@  
+
+$(MANAGER_SRC)/%.o: $(MANAGER_SRC)/%.c
+	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@  
+
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -f $(COMMON_SRC)/*.o
+	rm -f $(SCANNER_SRC)/*.o
+	rm -f $(MANAGER_SRC)/*.o
+	rm -f $(MANAGER_SRC)/$(EXE_MANAGER)
+	rm -f $(MANAGER_SRC)/$(EXE_SCANNER)
 
-# Phony targets
-.PHONY: all clean
+.PHONY : clean all

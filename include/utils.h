@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #ifdef DEBUG
 #define wfs_debug(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)
 #else
@@ -15,6 +14,7 @@
 #endif
 
 #define MAX_ID_LEN 32
+
 
 enum frame_subtypes {
     FRAME_SUBTYPE_ASSOC_REQ = 0,
@@ -40,14 +40,15 @@ enum frame_types {
 #define FRAME_CTRL_TYPE(ctrl) ((*ctrl >> 2) & 0x03)
 #define FRAME_CTRL_SUBTYPE(ctrl) ((*ctrl >> 4) & 0xF)
 
-//TODO management frame types
+#define MAC_FMT "%02x:%02x:%02x:%02x:%02x:%02x"
 
-void set_error_msg(const char *msg, ...);
+#define MAC_BYTES(mac) mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
 
 char *wfs_mgmt_frame_to_str(enum frame_subtypes subtype);
 char *wfs_frame_type_to_str(enum frame_types type);
 
 void wfs_print_mac(u_int8_t *mac);
 char *get_client_id(char *iface);
+int is_valid_mac(unsigned char* mac);
 
 #endif

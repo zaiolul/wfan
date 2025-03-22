@@ -8,8 +8,7 @@
 #include "mosquitto_mqtt.h"
 #include <libgen.h> //for basename()
 #include "topics.h"
-
-#define WFS_VERSION "0.0"
+#include <unistd.h>
 
 
 struct wfs_ctx{
@@ -20,9 +19,4 @@ struct wfs_ctx{
     topic_t sub_topics[MQTT_MAX_TOPICS];
 };
 
-void parse_args(int argc, char *argv[], struct wfs_ctx *ctx);
-struct wfs_ctx *wfs_alloc_ctx();
-void wfs_free_ctx(struct wfs_ctx *ctx);
-
-void open_cmd_sock();
 #endif

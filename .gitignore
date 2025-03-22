@@ -1,2 +1,7 @@
 .vscode/
+common/*.o
+scanner/*.o
+wfan_scan
+manager/*.o
+wfan_mgr
 build/
