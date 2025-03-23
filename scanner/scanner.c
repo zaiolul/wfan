@@ -16,7 +16,7 @@ void check_stop_client() {
     if(!ctx->registered)
         return;
 
-    sprintf(reg_topic.name,  "%s/%s", SCANNER_PUB_CMD_STOP, ctx->client_id);
+    sprintf(reg_topic.name,  "%s/%s", SCANNER_PUB_CMD_REGISTER, ctx->client_id);
     mqtt_publish_topic(reg_topic, empty);
     ctx->registered = 0;
     
@@ -28,7 +28,7 @@ void sig_handler(int signal)
         case SIGINT:
             ctx->stop = 1;
             check_stop_client();
-            cap_stop_capture();
+            cap_override_state(STATE_END);
             break;
         default:
             break;
@@ -85,40 +85,35 @@ void parse_args(int argc, char *argv[])
     wfs_debug("Channels: %d\n", ctx->n_chans);
 }
 
-void msg_send_cb(cap_msg_t msg)
+void msg_send_cb(cap_msg_t *msg)
 {
+    pthread_mutex_lock(&ctx->lock);
     payload_t payload;
     topic_t topic;
 
     topic.qos = 1;
+    payload.data = (void*)msg;
+    payload.len =  sizeof(cap_msg_t);
 
-    payload.data = msg.data;
-    payload.len = sizeof(cap_msg_t) - sizeof(void*);
-
-    printf("%s() type: %d count %d\n", __func__, msg.type, msg.count);
-
-    switch (msg.type) {
-        case AP_LIST:
-            payload.len += sizeof(struct wifi_ap_info) * msg.count;
-            sprintf(topic.name, "%s/%s", SCANNER_PUB_DATA_APLIST, ctx->client_id);
-            break;
-        case PKT_LIST:
-            payload.len += sizeof(struct cap_pkt_info) * msg.count;
-            sprintf(topic.name, "%s/%s", SCANNER_PUB_DATA_PKT, ctx->client_id);
-            break;
-        default:
-            return;
-    }
+    sprintf(topic.name, "%s/%s", SCANNER_PUB_DATA, ctx->client_id);
+    
     mqtt_publish_topic(topic, payload);
+    pthread_mutex_unlock(&ctx->lock);
 }
 
 void handle_cmd_all(char *cmd)
 {
+    if (!strcmp(cmd, CMD_STOP)) {
+        printf("GOT CMD STOP\n");
+        cap_override_state(STATE_IDLE);
+    } else if (!strcmp(cmd, CMD_SCAN)) {
+        printf("DO SCAN\n");
+        cap_override_state(STATE_AP_SEARCH_START);
+    }
 }
 
 void handle_cmd_id(char *cmd, void *data, unsigned int len)
 {   
-    printf("recv msg cmd id: %s\n", cmd);
     if (!strcmp(cmd, SCANNER_REG_ACK)) {
         ctx->registered = 1;
     }
@@ -126,6 +121,7 @@ void handle_cmd_id(char *cmd, void *data, unsigned int len)
 
 void msg_recv_cb(const char *topic, void *data, unsigned int len)
 {
+    pthread_mutex_lock(&ctx->lock);
     int tlen = strlen(topic);
 
     if (mqtt_is_sub_match(SCANNER_SUB_CMD_ALL, topic)) {
@@ -136,6 +132,7 @@ void msg_recv_cb(const char *topic, void *data, unsigned int len)
         //first check failed so we must have got a cmd for our ID
         handle_cmd_id(basename(topic), data, len);
     }
+    pthread_mutex_unlock(&ctx->lock);
 }
 
 //ugliest thing ive ever seen
@@ -198,6 +195,7 @@ int main(int argc, char *argv[])
     pcap_init(PCAP_CHAR_ENC_UTF_8, NULL);
 
     ctx = malloc(sizeof(struct scanner_client_ctx));
+    pthread_mutex_init(&ctx->lock, NULL);
     ctx->registered = 0;
     ctx->stop = 0;
 

@@ -42,13 +42,13 @@
 
 static struct capture_ctx *ctx;
 
-static cap_state_t _do_idle();
-static cap_state_t _do_ap_search_start();
-static cap_state_t _do_ap_search_loop();
-static cap_state_t _do_pkt_cap();
-static cap_state_t _do_send();
+static void _do_idle();
+static void _do_ap_search_start();
+static void _do_ap_search_loop();
+static void _do_pkt_cap();
+static void _do_send();
 
-typedef cap_state_t (*state_handler)();
+typedef void (*state_handler)();
 
 state_handler handlers[] = {
     [STATE_IDLE] = {_do_idle},
@@ -379,20 +379,32 @@ static char* cap_state_to_str(enum cap_capture_state state)
     return NULL;
 }
 
+
 //bandaid fix to stop work if end received externally
-static cap_state_t set_next(cap_state_t state)
+static void cap_next_state(cap_state_t state)
 {
-    if (ctx->state != STATE_END)
-        return state;
-    return STATE_END;
+    if (!ctx)
+        return;
+
+    if (!ctx->override_state)
+        ctx->state = state;
 }
 
-static cap_state_t _do_idle()
+void cap_override_state(cap_state_t state) 
+{
+    if (!ctx)
+        return;
+
+    ctx->override_state = 1;
+    ctx->state = state;
+}
+
+static void _do_idle()
 {
     sleep(1);
-    return set_next(STATE_IDLE);
+    cap_next_state(STATE_IDLE);
 }
-static cap_state_t _do_ap_search_start()
+static void _do_ap_search_start()
 {
     memset(ctx->ap_list, 0, sizeof(struct wifi_ap_info) * AP_MAX);
     memset(&(ctx->selected_ap), 0, sizeof(struct wifi_ap_info));
@@ -401,61 +413,66 @@ static cap_state_t _do_ap_search_start()
     time_t t1 = time(&(ctx->start_time));
     time_t t2 = time(&(ctx->cur_time));
     printf("time1 %f time2 %f\n", t1, t2);
-    return set_next(STATE_AP_SEARCH_LOOP);
+    cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 
-static cap_state_t _do_ap_search_loop()
+static void _do_ap_search_loop()
 {
     time(&(ctx->cur_time));
     if (difftime(ctx->cur_time, ctx->start_time) > AP_SEARCH_TIME_S) {
         if (ctx->ap_count > 0) {
             ctx->payload = AP_LIST;
-            return set_next(STATE_SEND);
+            cap_next_state(STATE_SEND);
+            return;
         }
         else {
             printf("No APs found\n");
 
-            return set_next(STATE_IDLE);
+            cap_next_state(STATE_IDLE);
+            return;
         }
     }
 
     pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
-    return set_next(STATE_AP_SEARCH_LOOP);
+    cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 
-static cap_state_t _do_pkt_cap()
+static void _do_pkt_cap()
 {
     if (ctx->pkt_count == PKT_MAX - 1) {
         ctx->payload = PKT_LIST;
-        return set_next(STATE_SEND);
+        cap_next_state(STATE_SEND);
+        return;
     }
     pcap_dispatch(ctx->handle,-1, cap_packet_handler, NULL);
-    return set_next(STATE_PKT_CAP);
+    cap_next_state(STATE_PKT_CAP);
 }
 
-static cap_state_t _do_send()
+static void _do_send()
 {
-    cap_msg_t msg;
-    msg.type = ctx->payload;
-
-
+    cap_msg_t *msg = malloc(sizeof(cap_msg_t));
+    msg->type = ctx->payload;
     switch (ctx->payload) {
         case AP_LIST:
-            msg.data = (void*)ctx->ap_list;
-            msg.count = ctx->ap_count;
+            memcpy(msg->ap_list, ctx->ap_list, sizeof(msg->ap_list));
+            msg->count = ctx->ap_count;
+            // msg->bytes_len += sizeof(struct wifi_ap_info) * ctx->ap_count;
             break;
         case PKT_LIST:
-            msg.data = (void*)ctx->pkt_list;
-            msg.count = ctx->pkt_count;
+            memcpy(msg->pkt_list, ctx->pkt_list, sizeof(msg->pkt_list));
+            msg->count = ctx->pkt_count;
+            // msg->bytes_len += sizeof(struct cap_pkt_info) * ctx->pkt_count;
             break;
         default:
             break;
     }
 
-    if (ctx->send_cb)
+    if (ctx->send_cb) {
         ctx->send_cb(msg);
+        // free(msg);
+    }
 
-    return set_next(STATE_IDLE);
+    cap_next_state(STATE_IDLE);
 }
 
 //used externally, on some event that isn't handled here
@@ -464,7 +481,7 @@ void cap_set_ap(u_int8_t *ssid, u_int8_t *bssid)
     memcpy(ctx->selected_ap.ssid, ssid, 32);
     memcpy(ctx->selected_ap.bssid, bssid, 6);
 
-    ctx->state = STATE_PKT_CAP;
+    cap_next_state(STATE_PKT_CAP);
 }
 
 
@@ -478,14 +495,16 @@ int cap_start_capture(char *dev, cap_send_cb cb)
         return PCAP_ERROR;
     }
 
-    ctx->state = set_next(STATE_AP_SEARCH_START);
+    cap_next_state(STATE_IDLE);
 
     wfs_debug("Start packet capture\n", NULL);
 
     while (ctx->state != STATE_END) {
+        // printf("ENTER STATE: %s\n", cap_state_to_str(ctx->state));
         if (!handlers[ctx->state])
             continue;
-        ctx->state = handlers[ctx->state]();
+        handlers[ctx->state]();
+        ctx->override_state = 0;
     }
 
     cap_pcap_close(ctx->handle);
@@ -493,9 +512,3 @@ int cap_start_capture(char *dev, cap_send_cb cb)
     return 0;
 }
 
-void cap_stop_capture()
-{
-    if (!ctx)
-        return;
-    ctx->state = STATE_END;
-}

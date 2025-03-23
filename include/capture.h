@@ -124,20 +124,25 @@ struct cap_pkt_info {
 };
 
 #define AP_MAX 32
-#define PKT_MAX 1024
+#define PKT_MAX 128
 
 typedef enum cap_send_payload_type {
     AP_LIST,
     PKT_LIST,
 } cap_payload_t;
 
-typedef struct cap_msg {
+struct cap_msg {
     cap_payload_t type;
-    void *data;
     size_t count;
-} cap_msg_t;
+    // size_t bytes_len;
+    union {
+        struct wifi_ap_info ap_list[AP_MAX];
+        struct cap_pkt_info pkt_list[PKT_MAX];
+    };
+} __attribute__((packed));
+typedef struct cap_msg cap_msg_t;
 
-typedef void (*cap_send_cb)(cap_msg_t msg);
+typedef void (*cap_send_cb)(cap_msg_t *msg);
 
 struct capture_ctx {
     struct wifi_ap_info ap_list[AP_MAX];
@@ -155,6 +160,7 @@ struct capture_ctx {
     time_t start_time, cur_time;
 
     cap_send_cb send_cb;
+    int override_state;
 };
 
 #define FRAME_ID(type, subtype) (type | subtype << 4)
@@ -167,6 +173,6 @@ struct capture_ctx {
 #define IDLE_TIME 60
 
 int cap_start_capture(char *dev, cap_send_cb cb);
-void cap_stop_capture();
+void cap_override_state(cap_state_t state);
 
 #endif
