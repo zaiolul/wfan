@@ -1,5 +1,5 @@
-#ifndef WFS_H
-#define WFS_H
+#ifndef SCANNER_H
+#define SCANNER_H
 
 #include <pcap.h>
 #include <pthread.h>
@@ -9,14 +9,17 @@
 #include <libgen.h> //for basename()
 #include "topics.h"
 #include <unistd.h>
+#include <signal.h>
+#include <stdlib.h>
 
-
-struct wfs_ctx{
+struct scanner_client_ctx{
     char *dev;
     int chanlist[14];
     int n_chans;
     char *client_id;
     topic_t sub_topics[MQTT_MAX_TOPICS];
+    int registered;
+    int stop;
 };
 
 #endif
