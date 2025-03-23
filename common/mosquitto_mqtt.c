@@ -165,7 +165,7 @@ static int mqtt_setup_login()
 }
 //TODO mosquitto tls setup
 
-int mqtt_setup(topic_t *topics, mqtt_cb on_msg_cb)
+int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb)
 {
     int ret;
     if (ctx && ctx->mosquitto)
@@ -188,24 +188,26 @@ int mqtt_setup(topic_t *topics, mqtt_cb on_msg_cb)
     if (ret) 
         return MOSQ_ERR_INVAL;
 
-    printf("good 1\n");
     ctx->mosquitto = mosquitto_new(NULL, true, NULL);
     if ((ret = mqtt_setup_login()) != MOSQ_ERR_SUCCESS)
         return ret;
-    printf("good 2\n");
     mosquitto_connect_callback_set(ctx->mosquitto, mqtt_on_connect);
     mosquitto_message_callback_set(ctx->mosquitto, mqtt_on_message);
     mosquitto_publish_callback_set(ctx->mosquitto, mqtt_on_publish);
 
-    printf("Sub topics\n");
+    if ((ret = mosquitto_will_set(ctx->mosquitto, will.name, 0, NULL, will.qos, true))) {
+        printf("Will set err: %s\n", mosquitto_strerror(ret));
+        return ret;
+    }
 
+    printf("Set will %s\n", will.name);
 
-    if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 60)) != MOSQ_ERR_SUCCESS) {
+    if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 10)) != MOSQ_ERR_SUCCESS) {
         printf("Can't connect to broker\n");
         return ret;
     }
     
-    printf("mqtt setup done\n");
+    printf("MQTT setup done\n");
     pthread_mutex_unlock(&ctx->lock);
     return MOSQ_ERR_SUCCESS;
 }
