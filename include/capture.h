@@ -13,6 +13,7 @@ typedef enum cap_capture_state {
     STATE_AP_SEARCH_LOOP,
     STATE_PKT_CAP,
     STATE_SEND,
+    STATE_END,
     STATE_MAX,
 } cap_state_t;
 
@@ -166,6 +167,6 @@ struct capture_ctx {
 #define IDLE_TIME 60
 
 int cap_start_capture(char *dev, cap_send_cb cb);
-int cap_stop_capture();
+void cap_stop_capture();
 
 #endif

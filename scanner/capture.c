@@ -56,6 +56,7 @@ state_handler handlers[] = {
     [STATE_AP_SEARCH_LOOP] = {_do_ap_search_loop},
     [STATE_PKT_CAP] = {_do_pkt_cap},
     [STATE_SEND] = {_do_send},
+    [STATE_END] = {NULL},
     [STATE_MAX] = {NULL}
 };
 
@@ -378,10 +379,18 @@ static char* cap_state_to_str(enum cap_capture_state state)
     return NULL;
 }
 
+//bandaid fix to stop work if end received externally
+static cap_state_t set_next(cap_state_t state)
+{
+    if (ctx->state != STATE_END)
+        return state;
+    return STATE_END;
+}
+
 static cap_state_t _do_idle()
 {
     sleep(1);
-    return STATE_IDLE;
+    return set_next(STATE_IDLE);
 }
 static cap_state_t _do_ap_search_start()
 {
@@ -392,7 +401,7 @@ static cap_state_t _do_ap_search_start()
     time_t t1 = time(&(ctx->start_time));
     time_t t2 = time(&(ctx->cur_time));
     printf("time1 %f time2 %f\n", t1, t2);
-    return STATE_AP_SEARCH_LOOP;
+    return set_next(STATE_AP_SEARCH_LOOP);
 }
 
 static cap_state_t _do_ap_search_loop()
@@ -401,27 +410,27 @@ static cap_state_t _do_ap_search_loop()
     if (difftime(ctx->cur_time, ctx->start_time) > AP_SEARCH_TIME_S) {
         if (ctx->ap_count > 0) {
             ctx->payload = AP_LIST;
-            return STATE_SEND;
+            return set_next(STATE_SEND);
         }
         else {
             printf("No APs found\n");
 
-            return STATE_IDLE;
+            return set_next(STATE_IDLE);
         }
     }
 
     pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
-    return STATE_AP_SEARCH_LOOP;
+    return set_next(STATE_AP_SEARCH_LOOP);
 }
 
 static cap_state_t _do_pkt_cap()
 {
     if (ctx->pkt_count == PKT_MAX - 1) {
         ctx->payload = PKT_LIST;
-        return STATE_SEND;
+        return set_next(STATE_SEND);
     }
     pcap_dispatch(ctx->handle,-1, cap_packet_handler, NULL);
-    return STATE_PKT_CAP;
+    return set_next(STATE_PKT_CAP);
 }
 
 static cap_state_t _do_send()
@@ -446,7 +455,7 @@ static cap_state_t _do_send()
     if (ctx->send_cb)
         ctx->send_cb(msg);
 
-    return STATE_IDLE;
+    return set_next(STATE_IDLE);
 }
 
 //used externally, on some event that isn't handled here
@@ -469,20 +478,24 @@ int cap_start_capture(char *dev, cap_send_cb cb)
         return PCAP_ERROR;
     }
 
-    ctx->state = STATE_AP_SEARCH_START;
+    ctx->state = set_next(STATE_AP_SEARCH_START);
 
     wfs_debug("Start packet capture\n", NULL);
 
-    while (1) {
+    while (ctx->state != STATE_END) {
         if (!handlers[ctx->state])
             continue;
         ctx->state = handlers[ctx->state]();
     }
+
+    cap_pcap_close(ctx->handle);
+    free(ctx);
     return 0;
 }
 
-int cap_stop_capture()
+void cap_stop_capture()
 {
-    cap_pcap_close(ctx->handle);
-    free(ctx);
+    if (!ctx)
+        return;
+    ctx->state = STATE_END;
 }
