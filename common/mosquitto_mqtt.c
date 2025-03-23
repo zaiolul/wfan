@@ -6,6 +6,7 @@
 #include "utils.h"
 #include <stdlib.h>
 #include <unistd.h>
+#include <pthread.h>
 
 static struct mqtt_ctx {
     struct mosquitto *mosquitto;
@@ -13,6 +14,7 @@ static struct mqtt_ctx {
     topic_t *sub_topics;
     mqtt_cb on_message;
     int cb_count;
+    pthread_mutex_t lock;
 } *ctx;
 
 int mqtt_is_sub_match(char* sub, char *topic)
@@ -25,27 +27,34 @@ int mqtt_is_sub_match(char* sub, char *topic)
 
 int mqtt_subscribe_topic(topic_t topic)
 {   
+    pthread_mutex_lock(&ctx->lock);
     int ret = mosquitto_subscribe(ctx->mosquitto, NULL, topic.name, topic.qos);
     
     if (ret != MOSQ_ERR_SUCCESS)
         printf("Failed subscription: %s, %s\n", topic.name,  mosquitto_strerror(ret));
     printf("sub %s success\n", topic.name);
+    pthread_mutex_unlock(&ctx->lock);
     return ret;
 }
 
 int mqtt_publish_topic(topic_t topic, payload_t payload)
 {
+    
     int message_id;
+    pthread_mutex_lock(&ctx->lock);
+
     printf("%s()\n", __func__);
 
     printf("publish topic: %s len: %d\n", topic.name, payload.len);
     int ret = mosquitto_publish(ctx->mosquitto, &message_id, topic.name, 
         payload.len, payload.data, topic.qos, false);
 
-    if (ret == MOSQ_ERR_SUCCESS)
-        return message_id;
+    if (ret)
+        printf("Failed publish: %s, %s\n", topic.name,  mosquitto_strerror(ret));
+    else 
+        ret = message_id;
 
-    printf("Failed publish: %s, %s\n", topic.name,  mosquitto_strerror(ret));
+    pthread_mutex_unlock(&ctx->lock);
     return ret;
 }
 
@@ -54,6 +63,7 @@ static void mqtt_cleanup() {
         return;
     if (ctx->mosquitto)
         mosquitto_destroy(ctx->mosquitto);
+    pthread_mutex_destroy(&ctx->lock);
     mosquitto_lib_cleanup();
     free(ctx);
 }
@@ -160,13 +170,16 @@ int mqtt_setup(topic_t *topics, mqtt_cb on_msg_cb)
     int ret;
     if (ctx && ctx->mosquitto)
         return MOSQ_ERR_ALREADY_EXISTS;
+    ctx = malloc(sizeof(struct mqtt_ctx));
+    pthread_mutex_init(&ctx->lock, NULL);
+    pthread_mutex_lock(&ctx->lock);
 
     if ((ret = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS) {
         printf("Can't initialize mosquitto lib\n");
         return ret;
     }
     printf("init mqtt lib\n");
-    ctx = malloc(sizeof(struct mqtt_ctx));
+    
     ctx->sub_topics = topics;
     ctx->on_message = on_msg_cb;
 
@@ -179,7 +192,7 @@ int mqtt_setup(topic_t *topics, mqtt_cb on_msg_cb)
     ctx->mosquitto = mosquitto_new(NULL, true, NULL);
     if ((ret = mqtt_setup_login()) != MOSQ_ERR_SUCCESS)
         return ret;
-     printf("good 2\n");
+    printf("good 2\n");
     mosquitto_connect_callback_set(ctx->mosquitto, mqtt_on_connect);
     mosquitto_message_callback_set(ctx->mosquitto, mqtt_on_message);
     mosquitto_publish_callback_set(ctx->mosquitto, mqtt_on_publish);
@@ -193,6 +206,7 @@ int mqtt_setup(topic_t *topics, mqtt_cb on_msg_cb)
     }
     
     printf("mqtt setup done\n");
+    pthread_mutex_unlock(&ctx->lock);
     return MOSQ_ERR_SUCCESS;
 }
 
