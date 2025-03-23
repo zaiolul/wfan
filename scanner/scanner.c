@@ -4,6 +4,10 @@
 #define TO_STR(val) TO_STR_VAL(val)
 
 struct scanner_client_ctx *ctx;
+struct mqtt_arg {
+    topic_t *sub_topics;
+    char *client_id;
+};
 
 void check_stop_client() {
     payload_t empty = {0};
@@ -12,7 +16,7 @@ void check_stop_client() {
     if(!ctx->registered)
         return;
 
-    sprintf(reg_topic.name, "%s/%s", SCANNER_PUB_CMD_REGISTER, ctx->client_id);
+    sprintf(reg_topic.name,  "%s/%s", SCANNER_PUB_CMD_STOP, ctx->client_id);
     mqtt_publish_topic(reg_topic, empty);
     ctx->registered = 0;
     
@@ -170,8 +174,11 @@ int try_register()
 
 void *mqtt_thread_func(void *arg)
 {
-    topic_t *sub_topics = (topic_t *)arg;
-    mqtt_setup(sub_topics, &msg_recv_cb);
+    struct mqtt_arg *targ = (struct mqtt_arg*)arg;
+
+    topic_t will = {0, 1};
+    sprintf(will.name, "%s/%s", SCANNER_PUB_CMD_STOP, targ->client_id);
+    mqtt_setup(targ->sub_topics, will,&msg_recv_cb);
     mqtt_run();
     pthread_exit(NULL);
 }
@@ -179,6 +186,7 @@ void *mqtt_thread_func(void *arg)
 int main(int argc, char *argv[])
 { 
     pthread_t mqtt_thread;
+    struct mqtt_arg targ;
     struct sigaction act;
     act.sa_handler = sig_handler;
     sigaction(SIGINT, &act, NULL);
@@ -203,7 +211,9 @@ int main(int argc, char *argv[])
     ctx->client_id = get_client_id(ctx->dev);
     prepare_topics(ctx->client_id, ctx->sub_topics);
     
-    pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, (void*)ctx->sub_topics);
+    targ.client_id = ctx->client_id;
+    targ.sub_topics = ctx->sub_topics;
+    pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, (void*)&targ);
     
     sleep(1); // wait a bit for mqtt to init first
 
