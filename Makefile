@@ -6,6 +6,7 @@ MANAGER_SRC=./manager
 COMMON_SRC=./common
 INCLUDE_DIR=./include
 
+EXTRA_CFLAGS:=-g
 SRCS_COM=$(wildcard $(COMMON_SRC)/*.c)
 OBJS_COM=$(SRCS_COM:$(COMMON_SRC)/%.c=$(COMMON_SRC)/%.o)
 
