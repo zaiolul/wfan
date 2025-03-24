@@ -161,17 +161,16 @@ int try_register()
             pthread_mutex_unlock(&ctx->lock);
             break;
         }
-        pthread_mutex_unlock(&ctx->lock);
-
-        mqtt_publish_topic(reg_topic, empty);
-        sleep(2); // give some time to message to go through
-
+   
         if (ctx->registered) {
-            printf("register ok\n");
+            printf("Client registered.\n");
+            pthread_mutex_unlock(&ctx->lock);
             return 0;
         }
-        sleep(5);
-        printf("try next\n");
+
+        mqtt_publish_topic(reg_topic, empty);
+        pthread_mutex_unlock(&ctx->lock);
+        sleep(2);
     }
     printf("Failed to receive reg ack, exit\n");
     return -1;
@@ -179,24 +178,19 @@ int try_register()
 
 void *mqtt_thread_func(void *arg)
 {
-    struct mqtt_arg *targ = (struct mqtt_arg*)arg;
-
-    topic_t will = {0, 1};
-    sprintf(will.name, "%s/%s", SCANNER_PUB_CMD_STOP, targ->client_id);
-    mqtt_setup(targ->sub_topics, will,&msg_recv_cb);
     mqtt_run();
     pthread_exit(NULL);
 }
 
 int main(int argc, char *argv[])
 { 
+    int ret;
     pthread_t mqtt_thread;
-    struct mqtt_arg targ;
-    struct sigaction act;
+    struct sigaction act;    
+    topic_t will = {0, 1};
+
     act.sa_handler = sig_handler;
     sigaction(SIGINT, &act, NULL);
-
-    wfs_debug("--START--\n", NULL);
 
     signal(SIGTERM, sig_handler);
 
@@ -215,24 +209,29 @@ int main(int argc, char *argv[])
     parse_args(argc, argv);
 
     ctx->client_id = get_client_id(ctx->dev);
+
     prepare_topics(ctx->client_id, ctx->sub_topics);
-    
-    targ.client_id = ctx->client_id;
-    targ.sub_topics = ctx->sub_topics;
-    pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, (void*)&targ);
-    
-    sleep(1); // wait a bit for mqtt to init first
+
+    sprintf(will.name, "%s/%s", SCANNER_PUB_CMD_STOP, ctx->client_id);
+
+    if ((ret = mqtt_setup(ctx->sub_topics, will,&msg_recv_cb)))
+        goto mqtt_err;
+
+    pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
 
     while (1) {
         if (try_register())
             break;
-        cap_start_capture(ctx->dev, &msg_send_cb);
+
+        if (cap_start_capture(ctx->dev, &msg_send_cb))
+            break;
     }
          
     pthread_cancel(mqtt_thread);
     pthread_join(mqtt_thread, NULL);
 
+mqtt_err:
+    mqtt_cleanup();
     free(ctx);
-    return EXIT_SUCCESS;
-
+    return ret;
 }
