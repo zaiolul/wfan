@@ -386,8 +386,9 @@ static void cap_next_state(cap_state_t state)
     if (!ctx)
         return;
 
-    if (!ctx->override_state)
+    if (!ctx->override_state) 
         ctx->state = state;
+    ctx->override_state = 0;
 }
 
 void cap_override_state(cap_state_t state) 
@@ -488,6 +489,12 @@ void cap_set_ap(u_int8_t *ssid, u_int8_t *bssid)
 int cap_start_capture(char *dev, cap_send_cb cb)
 {
     ctx = malloc(sizeof(struct capture_ctx));
+    if (!ctx) {
+        printf("%s(): failed to allocate context\n");
+        return -1;
+    }
+    memset(ctx, 0, sizeof(struct capture_ctx));
+
     ctx->handle = cap_pcap_setup(dev);
     ctx->send_cb = cb;
     if (!ctx->handle) {
