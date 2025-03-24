@@ -9,6 +9,7 @@
 typedef enum state {
     IDLE,
     SEARCHING,
+    SELECT_AP,
     CAPTURING
 } state_t;
 
@@ -26,7 +27,7 @@ struct ap_entry {
     int count;
 };
 
-struct manager_ctx {
+static struct manager_ctx {
     struct scanner_client clients[MAX_CLIENTS];
     size_t client_count;
     size_t finished_scans;
@@ -34,14 +35,17 @@ struct manager_ctx {
     state_t state;
     state_t prev_state;
     pthread_mutex_t lock;
-} *ctx;
 
-struct ap_entry ap_counters[AP_MAX] = {0};
-int ap_counters_n = 0;
+    struct wifi_ap_info common_aps[AP_MAX];
+    size_t n_cmn_ap;
+    int require_input;
+} *ctx;
 
 void set_state_idle() 
 {
     pthread_mutex_lock(&ctx->lock);
+        printf("%s()\n");
+    ctx->state = IDLE;
     topic_t start_idle = {MANAGER_PUB_CMD_STOP, 1};
     payload_t empty = {0};
     ctx->ready_clients = 0;
@@ -56,11 +60,13 @@ void set_state_idle()
 void set_state_searching()
 {
     pthread_mutex_lock(&ctx->lock);
+    ctx->state = SEARCHING;
+    printf("%s()\n");
     topic_t start_scan = {MANAGER_PUB_CMD_SCAN, 1};
     payload_t empty = {0};
     ctx->ready_clients = 0;
     ctx->finished_scans = 0;
-    ap_counters_n = 0;
+
     for (int i = 0; i < ctx->client_count; i ++) {
         ctx->clients[i].ready = 1;
         ctx->ready_clients ++;
@@ -71,12 +77,16 @@ void set_state_searching()
     pthread_mutex_unlock(&ctx->lock);
 }
 
-void set_state_capturing()
+void state_capturing()
 {
     pthread_mutex_lock(&ctx->lock);
     pthread_mutex_unlock(&ctx->lock);
 }
 
+void state_select_ap()
+{
+
+}
 
 int get_client_idx(struct scanner_client *list, size_t n, char *id) {
     for(int i = 0; i < n; i ++) {
@@ -86,58 +96,57 @@ int get_client_idx(struct scanner_client *list, size_t n, char *id) {
     return -1;
 }
 
-int contains_ap_entry(struct wifi_ap_info ap)
+int contains_ap_entry(struct ap_entry **entries, size_t n_entries, struct wifi_ap_info ap)
 {
-    for (int i = 0; i < ap_counters_n; i++) {
-        if (memcmp(ap.bssid, ap_counters[i].ap.bssid, 6) == 0) {
-            return i;  // Return index if found
+    struct ap_entry *ptr = *entries;
+    for (int i = 0; i < n_entries; i++) {
+        if (memcmp(ap.bssid, ptr[i].ap.bssid, 6) == 0) {
+            return i;
         }
     }
     return -1;
 }
 
-void find_ap_counters(struct wifi_ap_info *list, size_t count)
+void find_ap_counters(struct ap_entry **entries, size_t *n_entries, struct wifi_ap_info *ap_list, size_t count)
 {
     int idx;
+    struct ap_entry *ptr = *entries;
+
     for(int i = 0; i < count; i ++) {
-        idx = contains_ap_entry(list[i]);
+        idx = contains_ap_entry(entries, *n_entries, ap_list[i]);
         if (idx >= 0) {
-            printf("AP %s already exists\n",  list[i].ssid);
-            ap_counters[idx].count ++; 
+            printf("AP %s ("MAC_FMT")already exists\n",  ap_list[i].ssid, MAC_BYTES(ap_list[i].bssid));
+            ptr[idx].count ++; 
         } else {
-            printf("Found new AP %s\n",  list[i].ssid);
-            memcpy(ap_counters[ap_counters_n].ap.bssid, list[i].bssid, 6);
-            ap_counters[ap_counters_n].count = 1;
-            ap_counters_n ++;
-            
+            printf("Found new AP %s ("MAC_FMT")\n",  ap_list[i].ssid, MAC_BYTES(ap_list[i].bssid));
+            memcpy(ptr[i].ap.bssid, ap_list[i].bssid, 6);
+            ptr[*n_entries].count = 1;
+            (*n_entries) ++;
         }
     }
 }
 
-void find_common_aps()
+size_t find_common_aps(struct ap_entry **entries)
 {
+    size_t n_entries = 0;
+
     for(int i = 0; i < ctx->client_count; i ++) {
         if (!ctx->clients[i].ready)
             continue;
-        printf("Find AP counters for %s (total aps: %d)\n",
-            ctx->clients[i].id,
-            ctx->clients[i].ap_count);
-        find_ap_counters(ctx->clients[i].ap_list, ctx->clients[i].ap_count);
+        find_ap_counters(entries, &n_entries, ctx->clients[i].ap_list, ctx->clients[i].ap_count);
     }
+    return n_entries;
 }
 
-void select_ap()
+void save_common_aps(struct ap_entry *entries, size_t n_entries)
 {
-    struct wifi_ap_info aps[AP_MAX] = {0};
-    int ap_count = 0;
-
-    for (int i = 0; i < ap_counters_n; i ++) {
-        if (ap_counters[i].count != ctx->ready_clients)
+    ctx->n_cmn_ap = 0;
+    memset(ctx->common_aps, 0, sizeof(struct wifi_ap_info) * AP_MAX);
+    for (int i = 0; i < n_entries; i ++) {
+        if (entries[i].count != ctx->ready_clients)
             continue;
-        memcpy(&aps[ap_count ++], &ap_counters[i].ap, sizeof(struct wifi_ap_info));
-        printf("%s: common ap %s\n", __func__, ap_counters[i].ap.ssid);
+        memcpy(&ctx->common_aps[ctx->n_cmn_ap ++], &entries[i].ap, sizeof(struct wifi_ap_info));
     }
-
 }
 
 void handle_data(char *topic, void *data, unsigned int len)
@@ -146,6 +155,10 @@ void handle_data(char *topic, void *data, unsigned int len)
     char *id, *topic_dup;
     cap_msg_t *msg;
     struct scanner_client *client;
+    struct ap_entry *entries;
+    size_t n_entries;
+
+    entries = malloc(sizeof(struct ap_entry) * AP_MAX);
     printf("%s() %s len %d\n", __func__, topic, len);
     id = basename(topic);
 
@@ -161,8 +174,6 @@ void handle_data(char *topic, void *data, unsigned int len)
     
     switch (msg->type) {
         case AP_LIST:
-            memset(ap_counters, 0, sizeof(ap_counters));
-            ap_counters_n = 0;
 
             client->ap_count = msg->count;
             memcpy(client->ap_list, msg->ap_list, sizeof(struct wifi_ap_info) * msg->count);
@@ -170,8 +181,8 @@ void handle_data(char *topic, void *data, unsigned int len)
             ctx->finished_scans++;
             if (ctx->finished_scans == ctx->ready_clients) {
                 printf("All ready clients done scanning\n");
-                find_common_aps();
-                select_ap();
+                n_entries = find_common_aps(&entries);
+                save_common_aps(entries, n_entries);
             }
 
             break;
@@ -266,42 +277,24 @@ void prepare_topics(char *client_id, topic_t *topics)
 
 void *mqtt_thread_func(void *arg)
 {
-    topic_t *sub_topics = (topic_t *)arg;
-    topic_t will = {CMD_ALL_STOP, 1};
-    mqtt_setup(sub_topics, will, &msg_recv_cb);
     mqtt_run();
     pthread_exit(NULL);
 }
 
-int main(int argc, char *argv[])
-{     
-    pthread_t mqtt_thread;
-    topic_t sub_topics[MQTT_MAX_TOPICS] = {0};
 
-    ctx = malloc(sizeof(struct manager_ctx));
-    ctx->state = IDLE;
-    ctx->prev_state = ctx->state;
-    pthread_mutex_init(&ctx->lock, NULL);
-    prepare_topics(NULL, sub_topics);
-    
-    pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, (void*)sub_topics);
+void *input_thread_func(void* arg) 
+{
     int run = 1;
     char opt[1];
     while (run) {
-        printf("1: stop 2: scan 3: capture 0: exit\n");
+        printf("1: stop 2: search 0: exit\n");
         read(0, opt, 1);
         switch (opt[0]) {
             case '1':
-                ctx->state = IDLE;
                 set_state_idle();
                 break;
             case '2':
-                ctx->state = SEARCHING;
                 set_state_searching();
-                break;
-            case '3':
-                ctx->state = CAPTURING;
-                set_state_capturing();
                 break;
             case '0': 
                 run = 0;
@@ -310,8 +303,38 @@ int main(int argc, char *argv[])
                 break;
         }
     }
+    pthread_exit(NULL);
+}
+
+int main(int argc, char *argv[])
+{   
+    int ret;
+    pthread_t mqtt_thread, input_thread;
+    topic_t sub_topics[MQTT_MAX_TOPICS] = {0};
+    topic_t will = {CMD_ALL_STOP, 1};
+
+    ctx = malloc(sizeof(struct manager_ctx));
+    ctx->state = IDLE;
+    ctx->prev_state = ctx->state;
+    ctx->require_input = 1;
+
+    pthread_mutex_init(&ctx->lock, NULL);
+    prepare_topics(NULL, sub_topics);
+
+    if ((ret = mqtt_setup(sub_topics, will,&msg_recv_cb)))
+            goto mqtt_err;
+            
+    pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
+    pthread_create(&input_thread, NULL,  &input_thread_func, NULL);
+   
+    pthread_join(input_thread, NULL);
+    pthread_cancel(mqtt_thread);
+
     pthread_join(mqtt_thread, NULL);
 
-    return EXIT_SUCCESS;
+mqtt_err:
+    mqtt_cleanup();
+    free(ctx);
+    return ret;
 }
 
