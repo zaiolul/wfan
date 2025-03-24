@@ -32,16 +32,15 @@ int mqtt_subscribe_topic(topic_t topic)
     
     if (ret != MOSQ_ERR_SUCCESS)
         printf("Failed subscription: %s, %s\n", topic.name,  mosquitto_strerror(ret));
-    printf("sub %s success\n", topic.name);
+
     pthread_mutex_unlock(&ctx->lock);
     return ret;
 }
 
 int mqtt_publish_topic(topic_t topic, payload_t payload)
 {
-    
-    int message_id;
     pthread_mutex_lock(&ctx->lock);
+    int message_id;
 
     printf("%s()\n", __func__);
 
@@ -58,7 +57,8 @@ int mqtt_publish_topic(topic_t topic, payload_t payload)
     return ret;
 }
 
-static void mqtt_cleanup() {
+void mqtt_cleanup()
+{
     if (!ctx)
         return;
     if (ctx->mosquitto)
@@ -133,8 +133,6 @@ static void mqtt_on_message(struct mosquitto *mosq, void *obj, const struct mosq
 
 static void mqtt_on_connect(struct mosquitto *mosquitto, void *obj, int reason_code)
 {
-    printf("mqtt: %s\n", mosquitto_connack_string(reason_code));
-    
     int ret;
 	if(reason_code != 0){
         return;
@@ -172,13 +170,11 @@ int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb)
         return MOSQ_ERR_ALREADY_EXISTS;
     ctx = malloc(sizeof(struct mqtt_ctx));
     pthread_mutex_init(&ctx->lock, NULL);
-    pthread_mutex_lock(&ctx->lock);
 
     if ((ret = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS) {
         printf("Can't initialize mosquitto lib\n");
         return ret;
     }
-    printf("init mqtt lib\n");
     
     ctx->sub_topics = topics;
     ctx->on_message = on_msg_cb;
@@ -191,6 +187,7 @@ int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb)
     ctx->mosquitto = mosquitto_new(NULL, true, NULL);
     if ((ret = mqtt_setup_login()) != MOSQ_ERR_SUCCESS)
         return ret;
+
     mosquitto_connect_callback_set(ctx->mosquitto, mqtt_on_connect);
     mosquitto_message_callback_set(ctx->mosquitto, mqtt_on_message);
     mosquitto_publish_callback_set(ctx->mosquitto, mqtt_on_publish);
@@ -200,15 +197,12 @@ int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb)
         return ret;
     }
 
-    printf("Set will %s\n", will.name);
-
     if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 10)) != MOSQ_ERR_SUCCESS) {
         printf("Can't connect to broker\n");
         return ret;
     }
     
     printf("MQTT setup done\n");
-    pthread_mutex_unlock(&ctx->lock);
     return MOSQ_ERR_SUCCESS;
 }
 
@@ -261,6 +255,5 @@ int mqtt_run()
     printf("Start MQTT comm\n");
     mqtt_loop();
     mosquitto_disconnect(ctx->mosquitto);
-    mqtt_cleanup();
     return MOSQ_ERR_SUCCESS;
 }
