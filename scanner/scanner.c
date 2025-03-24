@@ -3,13 +3,14 @@
 #define TO_STR_VAL(val) #val
 #define TO_STR(val) TO_STR_VAL(val)
 
-struct scanner_client_ctx *ctx;
+static struct scanner_client_ctx *ctx;
 struct mqtt_arg {
     topic_t *sub_topics;
     char *client_id;
 };
 
-void check_stop_client() {
+void check_stop_client() 
+{
     payload_t empty = {0};
     topic_t reg_topic = {0, 2};
 
@@ -19,11 +20,11 @@ void check_stop_client() {
     sprintf(reg_topic.name,  "%s/%s", SCANNER_PUB_CMD_REGISTER, ctx->client_id);
     mqtt_publish_topic(reg_topic, empty);
     ctx->registered = 0;
-    
 }
 
 void sig_handler(int signal) 
 {   
+    pthread_mutex_lock(&ctx->lock);
     switch (signal) {
         case SIGINT:
             ctx->stop = 1;
@@ -33,6 +34,7 @@ void sig_handler(int signal)
         default:
             break;
     }
+    pthread_mutex_unlock(&ctx->lock);
 }
 
 void parse_chanlist(char *chanlist) {
@@ -105,7 +107,8 @@ void handle_cmd_all(char *cmd)
 {
     if (!strcmp(cmd, CMD_STOP)) {
         printf("GOT CMD STOP\n");
-        cap_override_state(STATE_IDLE);
+        ctx->registered = 0;
+        cap_override_state(STATE_END);
     } else if (!strcmp(cmd, CMD_SCAN)) {
         printf("DO SCAN\n");
         cap_override_state(STATE_AP_SEARCH_START);
@@ -148,22 +151,27 @@ void prepare_topics(char *client_id, topic_t *topics)
 
 int try_register() 
 {
-    int tries = 5;
     //empty message with topic
     payload_t empty = {0};
     topic_t reg_topic = {0, 2};
     sprintf(reg_topic.name, "%s/%s", SCANNER_PUB_CMD_REGISTER, ctx->client_id);
-    while (tries && !ctx->stop) {
+    while (1) {
+        pthread_mutex_lock(&ctx->lock);
+        if (ctx->stop) {
+            pthread_mutex_unlock(&ctx->lock);
+            break;
+        }
+        pthread_mutex_unlock(&ctx->lock);
+
         mqtt_publish_topic(reg_topic, empty);
-        sleep(1); // give some time to message to go through
+        sleep(2); // give some time to message to go through
 
         if (ctx->registered) {
             printf("register ok\n");
             return 0;
         }
-
+        sleep(5);
         printf("try next\n");
-        tries--;
     }
     printf("Failed to receive reg ack, exit\n");
     return -1;
@@ -215,10 +223,11 @@ int main(int argc, char *argv[])
     
     sleep(1); // wait a bit for mqtt to init first
 
-    if (try_register()) 
-        goto err_reg;
-
-    cap_start_capture(ctx->dev, &msg_send_cb);
+    while (1) {
+        if (try_register())
+            break;
+        cap_start_capture(ctx->dev, &msg_send_cb);
+    }
          
     pthread_cancel(mqtt_thread);
     pthread_join(mqtt_thread, NULL);
@@ -226,8 +235,4 @@ int main(int argc, char *argv[])
     free(ctx);
     return EXIT_SUCCESS;
 
-err_reg:
-    pthread_cancel(mqtt_thread);
-    free(ctx);
-    return EXIT_FAILURE;
 }
