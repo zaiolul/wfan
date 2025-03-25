@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "capture.h"
 
 #ifdef DEBUG
 #define wfs_debug(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)
@@ -50,5 +51,6 @@ char *wfs_frame_type_to_str(enum frame_types type);
 void wfs_print_mac(u_int8_t *mac);
 char *get_client_id(char *iface);
 int is_valid_mac(unsigned char* mac);
+void print_ap_list(struct wifi_ap_info *list, size_t n);
 
 #endif

@@ -4,6 +4,7 @@
 #include <sys/ioctl.h>
 #include <linux/if.h>
 #include "utils.h"
+#include "capture.h"
 
 char *wfs_mgmt_frame_to_str(enum frame_subtypes subtype) {
     switch (subtype) {
@@ -73,8 +74,18 @@ int is_valid_mac(unsigned char* mac)
 {
     unsigned char empty_mac[] = {0, 0, 0, 0, 0, 0};
     if (memcmp(mac, empty_mac, 6) == 0)
-        return 1;
-    return 0;
+        return 0;
+    return 1;
+}
+
+void print_ap_list(struct wifi_ap_info *list, size_t n) 
+{
+    for (int i = 0; i < n; i ++) {
+        printf("%d: %s "MAC_FMT"\n", 
+        i,
+        strlen(list[i].ssid) > 0 ? (char*)list[i].ssid : "<hidden>",
+        MAC_BYTES(list[i].bssid));
+    }
 }
 
 char *get_client_id(char *iface)

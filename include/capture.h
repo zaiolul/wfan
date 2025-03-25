@@ -174,5 +174,5 @@ struct capture_ctx {
 
 int cap_start_capture(char *dev, cap_send_cb cb);
 void cap_override_state(cap_state_t state);
-
+void cap_set_ap(struct wifi_ap_info *ap);
 #endif

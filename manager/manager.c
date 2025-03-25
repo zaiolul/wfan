@@ -4,11 +4,17 @@ static struct manager_ctx *ctx;
 
 struct threads_shared shared = {0};
 
+
+void next_state(state_t state) {
+    ctx->prev_state = ctx->state;
+    ctx->state = state;
+}
+
 void set_state_idle() 
 {
     pthread_mutex_lock(&shared.lock);
         printf("%s()\n");
-    ctx->state = IDLE;
+    next_state(IDLE);
     topic_t start_idle = {MANAGER_PUB_CMD_STOP, 1};
     payload_t empty = {0};
     ctx->ready_clients = 0;
@@ -23,7 +29,7 @@ void set_state_idle()
 void set_state_searching()
 {
     pthread_mutex_lock(&shared.lock);
-    ctx->state = SEARCHING;
+    next_state(SEARCHING);
     printf("%s()\n");
     topic_t start_scan = {MANAGER_PUB_CMD_SCAN, 1};
     payload_t empty = {0};
@@ -78,11 +84,9 @@ void find_ap_counters(struct ap_entry **entries, size_t *n_entries, struct wifi_
     for(int i = 0; i < count; i ++) {
         idx = contains_ap_entry(entries, *n_entries, ap_list[i]);
         if (idx >= 0) {
-            printf("AP %s ("MAC_FMT")already exists\n",  ap_list[i].ssid, MAC_BYTES(ap_list[i].bssid));
             ptr[idx].count ++; 
         } else {
-            printf("Found new AP %s ("MAC_FMT")\n",  ap_list[i].ssid, MAC_BYTES(ap_list[i].bssid));
-            memcpy(ptr[i].ap.bssid, ap_list[i].bssid, 6);
+            memcpy(&ptr[i].ap, ap_list + i, sizeof(struct wifi_ap_info));
             ptr[*n_entries].count = 1;
             (*n_entries) ++;
         }
@@ -112,6 +116,14 @@ void save_common_aps(struct ap_entry *entries, size_t n_entries)
     }
 }
 
+struct wifi_ap_info *select_shared_ap(int idx) 
+{
+    if (idx < 0 || idx >= ctx->n_cmn_ap)
+        return NULL;
+    printf("SELECTED AP: %s\n", ctx->common_aps[idx].ssid);
+    return &ctx->common_aps[idx];
+}
+
 void handle_data(char *topic, void *data, unsigned int len)
 {
     int idx;
@@ -132,8 +144,10 @@ void handle_data(char *topic, void *data, unsigned int len)
     client = &ctx->clients[idx];
     msg = (cap_msg_t *)data;
 
-    if (!msg)
+    if (!msg) {
+        free(entries);
         return;
+    }
     
     switch (msg->type) {
         case AP_LIST:
@@ -146,12 +160,14 @@ void handle_data(char *topic, void *data, unsigned int len)
                 printf("All ready clients done scanning\n");
                 n_entries = find_common_aps(&entries);
                 save_common_aps(entries, n_entries);
+                next_state(SELECT_AP);
             }
 
             break;
         case PKT_LIST:
             break;
     }
+    free(entries);
 
 }
 
@@ -250,6 +266,9 @@ int main(int argc, char *argv[])
     pthread_t mqtt_thread, input_thread;
     topic_t sub_topics[MQTT_MAX_TOPICS] = {0};
     topic_t will = {CMD_ALL_STOP, 1};
+    topic_t select_ap = {MANAGER_PUB_CMD_SELECT_AP, 1};
+    struct wifi_ap_info *ap_ptr;
+    payload_t ap_payload = {NULL, sizeof(struct wifi_ap_info)};
 
     ctx = malloc(sizeof(struct manager_ctx));
     ctx->state = IDLE;
@@ -264,7 +283,7 @@ int main(int argc, char *argv[])
             
     pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
 
-    char opt[1];
+    int opt;
 
     while (1) {
         pthread_mutex_lock(&shared.lock);
@@ -272,18 +291,44 @@ int main(int argc, char *argv[])
             pthread_mutex_unlock(&shared.lock);
             break;
         }
+        switch (ctx->state) {
+            case SELECT_AP:
+                //this whole thing is poc, update it later
+                while (1) {
+                    printf("select ap to scan:");
+                    print_ap_list(ctx->common_aps, ctx->n_cmn_ap);
+                    scanf(" %d", &opt);
+                    ap_ptr = select_shared_ap(opt);
+                        if (!ap_ptr)
+                            continue;
+                    break;
+                }
+                printf("send ap: %s\n", ap_ptr->ssid);
+                ap_payload.data = (void*)ap_ptr;
+                mqtt_publish_topic(select_ap, ap_payload);
+                next_state(IDLE);
+
+                break;
+            case IDLE:
+            case SEARCHING:
+            case CAPTURING:
+                break;
+        }
+        if (ctx->state != IDLE) { 
+            pthread_mutex_unlock(&shared.lock);
+            continue;
+        }
         pthread_mutex_unlock(&shared.lock);
 
-        printf("1: stop 2: search 0: exit\n");
-        read(0, opt, 1);
-        switch (opt[0]) {
-            case '1':
+        scanf(" %d", &opt);
+        switch (opt) {
+            case 1:
                 set_state_idle();
                 break;
-            case '2':
+            case 2:
                 set_state_searching();
                 break;
-            case '0': 
+            case 0: 
                 pthread_mutex_lock(&shared.lock);
                 shared.stop = 1;
                 pthread_mutex_unlock(&shared.lock);
@@ -291,6 +336,7 @@ int main(int argc, char *argv[])
             default:
                 break;
         }
+        fflush(stdin);
     }
 
     pthread_join(mqtt_thread, NULL);

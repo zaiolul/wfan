@@ -240,7 +240,7 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     u_int8_t *frame;
     int radiotap_len;
 
-    if (ctx->state == STATE_PKT_CAP && is_valid_mac(ctx->selected_ap.bssid))
+    if (ctx->state == STATE_PKT_CAP && !is_valid_mac(ctx->selected_ap.bssid))
         return;
 
     if (header->len < sizeof(struct radiotap_header))
@@ -272,7 +272,7 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
                 return;
 
             if (cap_add_pkt(&cap_info) < 0) {
-                wfs_debug("Failed to add ap %s\n", cap_info.ap.ssid);
+                printf("Failed to add ap %s\n", cap_info.ap.ssid);
 
                 return;
             }
@@ -282,12 +282,6 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     }
 }
 
-static void cap_print_ap_list(struct wifi_ap_info *ap_list, size_t count)
-{ 
-    for (int i = 0; i < count; i ++) {
-        printf("'%s' " MAC_FMT "\n", ap_list[i].ssid, MAC_BYTES(ap_list[i].bssid));
-    }
-}
 
 static char* cap_state_to_str(enum cap_capture_state state)
 {
@@ -343,7 +337,6 @@ static void _do_ap_search_start()
 
     time_t t1 = time(&(ctx->start_time));
     time_t t2 = time(&(ctx->cur_time));
-    printf("time1 %f time2 %f\n", t1, t2);
     cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 
@@ -405,12 +398,13 @@ static void _do_send()
 }
 
 //used externally, on some event that isn't handled here
-void cap_set_ap(u_int8_t *ssid, u_int8_t *bssid)
+void cap_set_ap(struct wifi_ap_info *ap)
 {
-    memcpy(ctx->selected_ap.ssid, ssid, 32);
-    memcpy(ctx->selected_ap.bssid, bssid, 6);
-
-    cap_next_state(STATE_PKT_CAP);
+    if (!ap)
+        return;
+    printf("recv ap: %s\n", ap->ssid);
+    memcpy(&ctx->selected_ap, ap, sizeof(struct wifi_ap_info));
+    cap_override_state(STATE_PKT_CAP);
 }
 
 
@@ -443,6 +437,7 @@ int cap_start_capture(char *dev, cap_send_cb cb)
 
     cap_pcap_close(ctx->handle);
     free(ctx);
+    ctx = NULL;
     return 0;
 }
 

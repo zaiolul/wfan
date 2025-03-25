@@ -7,6 +7,7 @@
 
 #define CMD_SCAN "scan"
 #define CMD_STOP "stop"
+#define CMD_SELECT_AP "select_ap"
 #define CMD_REGISTER "register"
 #define CMD_ALL_STOP TOPIC_CMD_ALL"/"CMD_STOP
 #define CMD_ALL_SELECT TOPIC_CMD_ALL"/select"
@@ -26,6 +27,8 @@
 #define MANAGER_SUB_CMD_STOP SCANNER_PUB_CMD_STOP"/+" //use the same register to unregister
 #define MANAGER_PUB_CMD_SCAN TOPIC_CMD_ALL"/"CMD_SCAN
 #define MANAGER_PUB_CMD_STOP TOPIC_CMD_ALL"/"CMD_STOP
+#define MANAGER_PUB_CMD_SELECT_AP TOPIC_CMD_ALL"/"CMD_SELECT_AP
+
 // #define MANAGER_PUB_CMD_SELECT TOPIC_CMD_ALL CMD_SELECT
 
 #define SCANNER_REG_ACK "reg_ack"

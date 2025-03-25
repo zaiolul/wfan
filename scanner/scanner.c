@@ -86,15 +86,26 @@ void msg_send_cb(cap_msg_t *msg)
     pthread_mutex_unlock(&shared.lock);
 }
 
-void handle_cmd_all(char *cmd)
+void handle_cmd_all(char *cmd, void *data, unsigned int len)
 {
+    struct wifi_ap_info *ap;
+
     if (!strcmp(cmd, CMD_STOP)) {
         printf("GOT CMD STOP\n");
         ctx->registered = 0;
         cap_override_state(STATE_END);
     } else if (!strcmp(cmd, CMD_SCAN)) {
+        if (!ctx->registered)
+            return;
         printf("DO SCAN\n");
         cap_override_state(STATE_AP_SEARCH_START);
+    } else if (!strcmp(cmd, CMD_SELECT_AP)) {
+        if (!ctx->registered)
+            return;
+        printf("DO AP SELECT\n");
+        ap = (struct wifi_ap_info *)data;
+         
+        cap_set_ap(ap);
     }
 }
 
@@ -113,7 +124,7 @@ void msg_recv_cb(const char *topic, void *data, unsigned int len)
     if (mqtt_is_sub_match(SCANNER_SUB_CMD_ALL, topic)) {
         //cmd is last part of the topic, so we can do a cheeky trick here 
         //since topic group is separated by /
-        handle_cmd_all(basename(topic));
+        handle_cmd_all(basename(topic), data, len);
     } else if (mqtt_is_sub_match(SCANNER_SUB_CMD_ID, topic)) {
         //first check failed so we must have got a cmd for our ID
         handle_cmd_id(basename(topic), data, len);
