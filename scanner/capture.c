@@ -4,42 +4,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-// static double rssi_avg = 0;
-// static int rssi_count = 0;
-// static int avg_count = 0;
-
-// static FILE *dumpfile;
-// #define SNAP_LEN 1300
-// #define BUFFER_SIZE 10 
-
-// typedef struct {
-//     u_int32_t ts_sec;
-//     u_int32_t ts_usec;
-//     u_int32_t incl_len;
-//     u_int32_t orig_len;
-// } record_t;
-
-// typedef struct
-// {
-//     u_int32_t magic;
-//     u_int16_t major;
-//     u_int16_t minor;
-//     u_int32_t res1;
-//     u_int32_t res2;
-//     u_int32_t snaplen;
-//     u_int32_t linktype;
-// } pcap_hdr_t;
-
-// pcap_hdr_t pcap_hdr = {
-//     .magic = 0xa1b2c3d4,
-//     .major = 2,
-//     .minor = 4,
-//     .res1 = 0,
-//     .res2 = 0,
-//     .snaplen = SNAP_LEN,
-//     .linktype = 127};
-// static int buf_index = 0;
-
 static struct capture_ctx *ctx;
 
 static void _do_idle();
@@ -76,8 +40,9 @@ pcap_t *cap_pcap_setup(char *device)
     int ret;
     pcap_t *handle;
     struct bpf_program filter;
-    char filter_exp[] = "wlan[0] & 0xFC == 0x80";
+    char filter_exp[] = "wlan[0] & 0xFC == 0x80"; //beacon 80211 frames only
     bpf_u_int32 net;
+
     handle = pcap_open_live(device, CAP_BUF_SIZE, 0, -1, err_msg);
     if (handle == NULL)
     {
@@ -95,12 +60,6 @@ pcap_t *cap_pcap_setup(char *device)
         fprintf(stderr, "Could not install filter: %s\n", pcap_geterr(handle));
         return NULL;
     }
-
-    // unlink("capture.pcap");
-    // dumpfile = fopen("capture.pcap", "a");
-
-    // fwrite(&pcap_hdr, sizeof(pcap_hdr_t), 1, dumpfile);
-    // wfs_debug("Created pcap handle\n", NULL);
 
     return handle;
 }
@@ -186,13 +145,12 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
     {
         tag = (struct wifi_tag_param *)ptr;
         ptr += sizeof(struct wifi_tag_param);
-        // wfs_debug("tag->id %d tag->length %d\n", tag->id, tag->length);
         switch (tag->id)
         {
         case TAG_SSID:
             memcpy(cap_info->ap.ssid, ptr, tag->length);
-            // wfs_debug("SSID: %s\n", wfs_info->ap.ssid);
-            break;
+            // break;
+            return; //do not really care about any others at this point
         default:
             break;
         }
@@ -322,33 +280,6 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
         default:
             break;
     }
-
-
-    // rssi_count ++;
-    // rssi_avg += (wfs_info.radio.antenna_signal - rssi_avg) / rssi_count;
-
-    // printf("\"%s\" (%02x:%02x:%02x:%02x:%02x:%02x) signal: %d (%f)\n",
-    // wfs_info.ap.ssid,
-    // wfs_info.ap.bssid[0], wfs_info.ap.bssid[1], wfs_info.ap.bssid[2], wfs_info.ap.bssid[3], wfs_info.ap.bssid[4], wfs_info.ap.bssid[5],
-    // wfs_info.radio.antenna_signal, rssi_avg - 2.5);
-
-    // if (wfs_info.radio.antenna_signal < rssi_avg - 2) {
-    //     avg_count ++;
-    // } else if (avg_count > 0) {
-    //     printf("EXCEEDED AVG FOR %d FRAMES \n", avg_count);
-    //     avg_count = 0;
-    // }
-
-    // record_t record = {
-    //     .ts_sec = header->ts.tv_sec,
-    //     .ts_usec = header->ts.tv_usec,
-    //     .incl_len = radiotap_len,
-    //     .orig_len = radiotap_len,
-    // };
-    // // printf("header->caplen %d header->len %d\n", header->caplen, header->len);
-    // fwrite(&record, sizeof(record_t), 1, dumpfile);
-    // fwrite(packet, 1, radiotap_len, dumpfile);
-    // fflush(dumpfile);
 }
 
 static void cap_print_ap_list(struct wifi_ap_info *ap_list, size_t count)
@@ -378,7 +309,6 @@ static char* cap_state_to_str(enum cap_capture_state state)
     //should not reach
     return NULL;
 }
-
 
 //bandaid fix to stop work if end received externally
 static void cap_next_state(cap_state_t state)
@@ -457,12 +387,10 @@ static void _do_send()
         case AP_LIST:
             memcpy(msg->ap_list, ctx->ap_list, sizeof(msg->ap_list));
             msg->count = ctx->ap_count;
-            // msg->bytes_len += sizeof(struct wifi_ap_info) * ctx->ap_count;
             break;
         case PKT_LIST:
             memcpy(msg->pkt_list, ctx->pkt_list, sizeof(msg->pkt_list));
             msg->count = ctx->pkt_count;
-            // msg->bytes_len += sizeof(struct cap_pkt_info) * ctx->pkt_count;
             break;
         default:
             break;
@@ -470,7 +398,7 @@ static void _do_send()
 
     if (ctx->send_cb) {
         ctx->send_cb(msg);
-        // free(msg);
+        free(msg);
     }
 
     cap_next_state(STATE_IDLE);
@@ -507,7 +435,6 @@ int cap_start_capture(char *dev, cap_send_cb cb)
     wfs_debug("Start packet capture\n", NULL);
 
     while (ctx->state != STATE_END) {
-        // printf("ENTER STATE: %s\n", cap_state_to_str(ctx->state));
         if (!handlers[ctx->state])
             continue;
         handlers[ctx->state]();
