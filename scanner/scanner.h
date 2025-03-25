@@ -19,8 +19,6 @@ struct scanner_client_ctx{
     char *client_id;
     topic_t sub_topics[MQTT_MAX_TOPICS];
     int registered;
-    int stop;
-    pthread_mutex_t lock;
 };
 
 #endif

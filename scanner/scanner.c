@@ -4,37 +4,20 @@
 #define TO_STR(val) TO_STR_VAL(val)
 
 static struct scanner_client_ctx *ctx;
-struct mqtt_arg {
-    topic_t *sub_topics;
-    char *client_id;
-};
 
-void check_stop_client() 
-{
-    payload_t empty = {0};
-    topic_t reg_topic = {0, 2};
-
-    if(!ctx->registered)
-        return;
-
-    sprintf(reg_topic.name,  "%s/%s", SCANNER_PUB_CMD_REGISTER, ctx->client_id);
-    mqtt_publish_topic(reg_topic, empty);
-    ctx->registered = 0;
-}
+struct threads_shared shared = {0};
 
 void sig_handler(int signal) 
 {   
-    pthread_mutex_lock(&ctx->lock);
+    pthread_mutex_lock(&shared.lock);
     switch (signal) {
         case SIGINT:
-            ctx->stop = 1;
-            check_stop_client();
-            cap_override_state(STATE_END);
+            shared.stop = 1;
             break;
         default:
             break;
     }
-    pthread_mutex_unlock(&ctx->lock);
+    pthread_mutex_unlock(&shared.lock);
 }
 
 void parse_chanlist(char *chanlist) {
@@ -89,7 +72,7 @@ void parse_args(int argc, char *argv[])
 
 void msg_send_cb(cap_msg_t *msg)
 {
-    pthread_mutex_lock(&ctx->lock);
+    pthread_mutex_lock(&shared.lock);
     payload_t payload;
     topic_t topic;
 
@@ -100,7 +83,7 @@ void msg_send_cb(cap_msg_t *msg)
     sprintf(topic.name, "%s/%s", SCANNER_PUB_DATA, ctx->client_id);
     
     mqtt_publish_topic(topic, payload);
-    pthread_mutex_unlock(&ctx->lock);
+    pthread_mutex_unlock(&shared.lock);
 }
 
 void handle_cmd_all(char *cmd)
@@ -124,7 +107,7 @@ void handle_cmd_id(char *cmd, void *data, unsigned int len)
 
 void msg_recv_cb(const char *topic, void *data, unsigned int len)
 {
-    pthread_mutex_lock(&ctx->lock);
+    pthread_mutex_lock(&shared.lock);
     int tlen = strlen(topic);
 
     if (mqtt_is_sub_match(SCANNER_SUB_CMD_ALL, topic)) {
@@ -135,7 +118,7 @@ void msg_recv_cb(const char *topic, void *data, unsigned int len)
         //first check failed so we must have got a cmd for our ID
         handle_cmd_id(basename(topic), data, len);
     }
-    pthread_mutex_unlock(&ctx->lock);
+    pthread_mutex_unlock(&shared.lock);
 }
 
 //ugliest thing ive ever seen
@@ -156,20 +139,20 @@ int try_register()
     topic_t reg_topic = {0, 2};
     sprintf(reg_topic.name, "%s/%s", SCANNER_PUB_CMD_REGISTER, ctx->client_id);
     while (1) {
-        pthread_mutex_lock(&ctx->lock);
-        if (ctx->stop) {
-            pthread_mutex_unlock(&ctx->lock);
+        pthread_mutex_lock(&shared.lock);
+        if (shared.stop) {
+            pthread_mutex_unlock(&shared.lock);
             break;
         }
    
         if (ctx->registered) {
             printf("Client registered.\n");
-            pthread_mutex_unlock(&ctx->lock);
+            pthread_mutex_unlock(&shared.lock);
             return 0;
         }
 
         mqtt_publish_topic(reg_topic, empty);
-        pthread_mutex_unlock(&ctx->lock);
+        pthread_mutex_unlock(&shared.lock);
         sleep(2);
     }
     printf("Failed to receive reg ack, exit\n");
@@ -188,7 +171,7 @@ int main(int argc, char *argv[])
     pthread_t mqtt_thread;
     struct sigaction act;    
     topic_t will = {0, 1};
-
+    
     act.sa_handler = sig_handler;
     sigaction(SIGINT, &act, NULL);
 
@@ -197,9 +180,9 @@ int main(int argc, char *argv[])
     pcap_init(PCAP_CHAR_ENC_UTF_8, NULL);
 
     ctx = malloc(sizeof(struct scanner_client_ctx));
-    pthread_mutex_init(&ctx->lock, NULL);
+    pthread_mutex_init(&shared.lock, NULL);
     ctx->registered = 0;
-    ctx->stop = 0;
+    shared.stop = 0;
 
     if (ctx == NULL) {
         fprintf(stderr, "Failed to allocate memory for context\n");

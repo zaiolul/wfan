@@ -26,6 +26,11 @@ struct mosquitto_conf {
     char cafile[PATH_MAX];
 };
 
+struct threads_shared {
+    pthread_mutex_t lock;
+    int stop;
+};
+
 typedef void (*mqtt_cb)(const char *topic, void* data, u_int32_t len);
 int mqtt_register_cb(mqtt_cb *func);
 int mqtt_subscribe_topic(topic_t topic);

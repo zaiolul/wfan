@@ -17,6 +17,8 @@ static struct mqtt_ctx {
     pthread_mutex_t lock;
 } *ctx;
 
+extern struct threads_shared shared;
+
 int mqtt_is_sub_match(char* sub, char *topic)
 {
     bool match_res;
@@ -223,6 +225,12 @@ static void mqtt_loop()
     int ret;
 
     while (1) {
+        pthread_mutex_lock(&shared.lock);
+        if (shared.stop) {
+            pthread_mutex_unlock(&shared.lock);
+        }
+        pthread_mutex_unlock(&shared.lock);
+        
         ret = mosquitto_loop(ctx->mosquitto, -1, 1);
         if (ret == MOSQ_ERR_SUCCESS)
             continue;

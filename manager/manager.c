@@ -1,49 +1,12 @@
-#include "utils.h"
-#include <pthread.h>
-#include "topics.h"
-#include "mosquitto_mqtt.h"
-#include "capture.h"
-#include <libgen.h> //for basename()
-#include <unistd.h>
-#define MAX_CLIENTS 8
-typedef enum state {
-    IDLE,
-    SEARCHING,
-    SELECT_AP,
-    CAPTURING
-} state_t;
+#include "manager.h"
 
-struct scanner_client {
-    char id[MAX_ID_LEN];
-    unsigned long last_msg;
-    struct wifi_ap_info ap_list[AP_MAX];
-    size_t ap_count;
-    int finished_scan;
-    int ready;
-};
+static struct manager_ctx *ctx;
 
-struct ap_entry {
-    struct wifi_ap_info ap;
-    int count;
-};
-
-static struct manager_ctx {
-    struct scanner_client clients[MAX_CLIENTS];
-    size_t client_count;
-    size_t finished_scans;
-    size_t ready_clients;
-    state_t state;
-    state_t prev_state;
-    pthread_mutex_t lock;
-
-    struct wifi_ap_info common_aps[AP_MAX];
-    size_t n_cmn_ap;
-    int require_input;
-} *ctx;
+struct threads_shared shared = {0};
 
 void set_state_idle() 
 {
-    pthread_mutex_lock(&ctx->lock);
+    pthread_mutex_lock(&shared.lock);
         printf("%s()\n");
     ctx->state = IDLE;
     topic_t start_idle = {MANAGER_PUB_CMD_STOP, 1};
@@ -54,12 +17,12 @@ void set_state_idle()
     }
 
     mqtt_publish_topic(start_idle, empty);
-    pthread_mutex_unlock(&ctx->lock);
+    pthread_mutex_unlock(&shared.lock);
 }
 
 void set_state_searching()
 {
-    pthread_mutex_lock(&ctx->lock);
+    pthread_mutex_lock(&shared.lock);
     ctx->state = SEARCHING;
     printf("%s()\n");
     topic_t start_scan = {MANAGER_PUB_CMD_SCAN, 1};
@@ -74,13 +37,13 @@ void set_state_searching()
 
     mqtt_publish_topic(start_scan, empty);
 
-    pthread_mutex_unlock(&ctx->lock);
+    pthread_mutex_unlock(&shared.lock);
 }
 
 void state_capturing()
 {
-    pthread_mutex_lock(&ctx->lock);
-    pthread_mutex_unlock(&ctx->lock);
+    pthread_mutex_lock(&shared.lock);
+    pthread_mutex_unlock(&shared.lock);
 }
 
 void state_select_ap()
@@ -247,7 +210,7 @@ done:
 
 void msg_recv_cb(const char *topic, void *data, unsigned int len)
 {
-    pthread_mutex_lock(&ctx->lock);
+    pthread_mutex_lock(&shared.lock);
     int tlen = strlen(topic);
 
     if (mqtt_is_sub_match(MANAGER_SUB_DATA, topic)) {
@@ -260,7 +223,7 @@ void msg_recv_cb(const char *topic, void *data, unsigned int len)
         char *cmd = topic + strlen(TOPIC_CMD_BASE) + 1;
         handle_client_state(cmd);
     } 
-    pthread_mutex_unlock(&ctx->lock);
+    pthread_mutex_unlock(&shared.lock);
 }
 
 //ugliest thing ive ever seen
@@ -281,31 +244,6 @@ void *mqtt_thread_func(void *arg)
     pthread_exit(NULL);
 }
 
-
-void *input_thread_func(void* arg) 
-{
-    int run = 1;
-    char opt[1];
-    while (run) {
-        printf("1: stop 2: search 0: exit\n");
-        read(0, opt, 1);
-        switch (opt[0]) {
-            case '1':
-                set_state_idle();
-                break;
-            case '2':
-                set_state_searching();
-                break;
-            case '0': 
-                run = 0;
-                break;
-            default:
-                break;
-        }
-    }
-    pthread_exit(NULL);
-}
-
 int main(int argc, char *argv[])
 {   
     int ret;
@@ -318,17 +256,42 @@ int main(int argc, char *argv[])
     ctx->prev_state = ctx->state;
     ctx->require_input = 1;
 
-    pthread_mutex_init(&ctx->lock, NULL);
+    pthread_mutex_init(&shared.lock, NULL);
     prepare_topics(NULL, sub_topics);
 
     if ((ret = mqtt_setup(sub_topics, will,&msg_recv_cb)))
             goto mqtt_err;
             
     pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
-    pthread_create(&input_thread, NULL,  &input_thread_func, NULL);
-   
-    pthread_join(input_thread, NULL);
-    pthread_cancel(mqtt_thread);
+
+    char opt[1];
+
+    while (1) {
+        pthread_mutex_lock(&shared.lock);
+        if (shared.stop) {
+            pthread_mutex_unlock(&shared.lock);
+            break;
+        }
+        pthread_mutex_unlock(&shared.lock);
+
+        printf("1: stop 2: search 0: exit\n");
+        read(0, opt, 1);
+        switch (opt[0]) {
+            case '1':
+                set_state_idle();
+                break;
+            case '2':
+                set_state_searching();
+                break;
+            case '0': 
+                pthread_mutex_lock(&shared.lock);
+                shared.stop = 1;
+                pthread_mutex_unlock(&shared.lock);
+                break;
+            default:
+                break;
+        }
+    }
 
     pthread_join(mqtt_thread, NULL);
 
