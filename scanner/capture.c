@@ -376,14 +376,18 @@ static void _do_send()
 {
     cap_msg_t *msg = malloc(sizeof(cap_msg_t));
     msg->type = ctx->payload;
+
+    cap_state_t next_state;
     switch (ctx->payload) {
         case AP_LIST:
             memcpy(msg->ap_list, ctx->ap_list, sizeof(msg->ap_list));
             msg->count = ctx->ap_count;
+            next_state = STATE_IDLE;
             break;
         case PKT_LIST:
             memcpy(msg->pkt_list, ctx->pkt_list, sizeof(msg->pkt_list));
             msg->count = ctx->pkt_count;
+            next_state = STATE_PKT_CAP;
             break;
         default:
             break;
@@ -394,7 +398,7 @@ static void _do_send()
         free(msg);
     }
 
-    cap_next_state(STATE_IDLE);
+    cap_next_state(next_state);
 }
 
 //used externally, on some event that isn't handled here
@@ -425,8 +429,6 @@ int cap_start_capture(char *dev, cap_send_cb cb)
     }
 
     cap_next_state(STATE_IDLE);
-
-    wfs_debug("Start packet capture\n", NULL);
 
     while (ctx->state != STATE_END) {
         if (!handlers[ctx->state])
