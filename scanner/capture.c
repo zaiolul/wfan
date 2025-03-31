@@ -382,11 +382,13 @@ static void _do_send()
         case AP_LIST:
             memcpy(msg->ap_list, ctx->ap_list, sizeof(msg->ap_list));
             msg->count = ctx->ap_count;
+            ctx->ap_count = 0;
             next_state = STATE_IDLE;
             break;
         case PKT_LIST:
             memcpy(msg->pkt_list, ctx->pkt_list, sizeof(msg->pkt_list));
             msg->count = ctx->pkt_count;
+            ctx->pkt_count = 0;
             next_state = STATE_PKT_CAP;
             break;
         default:
