@@ -4,6 +4,90 @@ static struct manager_ctx *ctx;
 
 struct threads_shared shared = {0};
 
+//Welfords algorithm, single pass variance
+void update_client_scan_stats(struct scanner_client *client, struct cap_pkt_info *list, size_t count)
+{   float var = 0, avg = 0, prev_avg = 0, prev_var = 0;
+    int n = 0;
+    int signal;
+
+    var = client->stats.variance;
+    avg = client->stats.average;
+
+    for(int i = 0; i < count; i ++) {
+        n ++;
+        signal = list[i].radio.antenna_signal;
+        avg = prev_avg + (signal - prev_avg) / n;
+        var = prev_var + (signal - avg) * (signal - prev_avg);
+        prev_avg = avg;
+        prev_var = var;
+    }
+
+    client->stats.average = avg;
+    client->stats.variance = var / (n - 1);
+    client->stats.done = 1;
+}
+
+int create_results_dir()
+{
+    int ret;
+    ret = mkdir(OUTPUT_DIR, 0775);
+    if (!ret)
+        return 0;
+    switch (errno) {
+        case EEXIST:
+            printf("Results dir already exists\n");
+            return 0;
+        break;
+        case ENOENT:
+            printf("Can't create dir\n");
+        break;
+        default:
+            printf("some other error\n");
+        break;
+    }
+    return ret;
+}
+
+int client_close_resfile(struct scanner_client *client)
+{
+    if (!client->result_file)
+        return 0;
+    
+    fclose(client->result_file);
+    client->result_file = NULL;
+}
+
+int client_open_resfile(struct scanner_client *client)
+{
+    FILE *fs;
+    char filename[PATH_MAX];
+    if (client->result_file) 
+        return 0;
+
+    snprintf(filename, PATH_MAX, "%s/%s_%ld%s", OUTPUT_DIR, client->id, ctx->cap_start_time, RES_FILE_EXT);
+    client->result_file = fopen(filename, "a+");
+
+    if (!client->result_file) {
+        printf("failed to open result file: %d", errno);
+        return 1;
+    }
+
+    return 0;
+}
+
+int client_res_printf(struct scanner_client *client, const char *fmt, ...)
+{
+    va_list args;
+    int ret;
+    if (!client->result_file)
+        return -1;
+
+    va_start(args, fmt);
+    ret = vfprintf(client->result_file, fmt, args);
+    va_end( args );
+
+    return ret;
+}
 
 void next_state(state_t state) {
     ctx->prev_state = ctx->state;
@@ -116,6 +200,22 @@ void save_common_aps(struct ap_entry *entries, size_t n_entries)
     }
 }
 
+void write_pkt_data(struct scanner_client *client, struct cap_pkt_info *list, size_t count)
+{
+    struct radio_info *r;
+    if (!client->result_file)
+        return; //TODO: gracefully handle and maybe unregister client, should not probably reach this far if file not created tbh
+    
+
+    for (int i = 0; i < count; i ++) {
+        r = &list[i].radio;
+        if (client_res_printf(client, "%d;%f\n",
+            r->antenna_signal, r->antenna_signal - client->stats.average) < 0)
+            printf("failed to write client result\n");
+    }
+    fflush(client->result_file);
+}
+
 struct wifi_ap_info *select_shared_ap(int idx) 
 {
     if (idx < 0 || idx >= ctx->n_cmn_ap)
@@ -151,20 +251,33 @@ void handle_data(char *topic, void *data, unsigned int len)
     
     switch (msg->type) {
         case AP_LIST:
-
             client->ap_count = msg->count;
             memcpy(client->ap_list, msg->ap_list, sizeof(struct wifi_ap_info) * msg->count);
-
             ctx->finished_scans++;
+
             if (ctx->finished_scans == ctx->ready_clients) {
                 printf("All ready clients done scanning\n");
                 n_entries = find_common_aps(&entries);
                 save_common_aps(entries, n_entries);
                 next_state(SELECT_AP);
             }
-
             break;
+
         case PKT_LIST:
+            if (!client->stats.done) {
+                update_client_scan_stats(client, msg->pkt_list, msg->count);
+                if (client_open_resfile(client)) {
+                    printf("Can't open client results file\n");
+                    break;
+                }
+                client_res_printf(client, "%s;"MAC_FMT"\n", ctx->selected_ap.ssid, MAC_BYTES(ctx->selected_ap.bssid)); //ssid;mac
+                client_res_printf(client, "%d;%f;%f\n", msg->pkt_list[0].radio.channel_freq,
+                    client->stats.average, client->stats.variance); //channel, listen average, listen variance
+                break;
+            }
+          
+         
+            write_pkt_data(client, msg->pkt_list, msg->count);
             break;
     }
     free(entries);
@@ -194,6 +307,7 @@ void handle_client_state(char *cmd) {
 
     if (idx >= 0) {
         printf("Unregister client %s\n", id);
+        client_close_resfile(&ctx->clients[idx]);
         remove_client(idx);
         goto done;
     }
@@ -260,6 +374,14 @@ void *mqtt_thread_func(void *arg)
     pthread_exit(NULL);
 }
 
+//test
+// void timer_learn(union sigval)
+// {
+//    pthread_mutex_lock(&shared.lock);
+   
+//    pthread_mutex_unlock(&shared.lock);
+// }
+
 int main(int argc, char *argv[])
 {   
     int ret;
@@ -269,6 +391,8 @@ int main(int argc, char *argv[])
     topic_t select_ap = {MANAGER_PUB_CMD_SELECT_AP, 1};
     struct wifi_ap_info *ap_ptr;
     payload_t ap_payload = {NULL, sizeof(struct wifi_ap_info)};
+
+    // set_timer(3, timer_learn);
 
     ctx = malloc(sizeof(struct manager_ctx));
     ctx->state = IDLE;
@@ -280,7 +404,10 @@ int main(int argc, char *argv[])
 
     if ((ret = mqtt_setup(sub_topics, will,&msg_recv_cb)))
             goto mqtt_err;
-            
+
+    if (create_results_dir())
+        return EXIT_FAILURE;
+
     pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
 
     int opt;
@@ -303,9 +430,11 @@ int main(int argc, char *argv[])
                             continue;
                     break;
                 }
+                memcpy(&ctx->selected_ap, ap_ptr, sizeof(struct wifi_ap_info)); 
                 printf("send ap: %s\n", ap_ptr->ssid);
                 ap_payload.data = (void*)ap_ptr;
                 mqtt_publish_topic(select_ap, ap_payload);
+                time(&ctx->cap_start_time);
                 next_state(IDLE);
 
                 break;
