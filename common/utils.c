@@ -4,7 +4,7 @@
 #include <sys/ioctl.h>
 #include <linux/if.h>
 #include "utils.h"
-#include "capture.h"
+
 
 char *wfs_mgmt_frame_to_str(enum frame_subtypes subtype) {
     switch (subtype) {
@@ -97,4 +97,29 @@ char *get_client_id(char *iface)
     set_dev_mac(iface, id);
     sprintf(id, "%s_"MAC_FMT, hostname, MAC_BYTES(id));
     return id;
+}
+
+int set_timer(int sec, void (*cb)(union sigval))
+{
+    struct sigevent sev;
+    timer_t timerid;
+    struct itimerspec its = {0};
+
+    // Configure the timer to call timer_handler
+    sev.sigev_notify = SIGEV_THREAD;
+    sev.sigev_notify_function = cb;
+    sev.sigev_value.sival_ptr = NULL;
+    sev.sigev_notify_attributes = NULL;
+
+    if (timer_create(CLOCK_MONOTONIC, &sev, &timerid) != 0) {
+        perror("timer_create");
+        return 1;
+    }
+
+    its.it_value.tv_sec = sec;
+
+    if (timer_settime(timerid, 0, &its, NULL) != 0) {
+        perror("timer_settime");
+        return 1;
+    }
 }

@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "capture.h"
+#include <time.h>
+#include <signal.h>
+#include <unistd.h>
 
 #ifdef DEBUG
 #define wfs_debug(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)
@@ -53,4 +56,5 @@ char *get_client_id(char *iface);
 int is_valid_mac(unsigned char* mac);
 void print_ap_list(struct wifi_ap_info *list, size_t n);
 
+int set_timer(int sec, void (*cb)(union sigval));
 #endif
