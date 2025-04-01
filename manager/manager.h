@@ -7,7 +7,7 @@
 #include <pthread.h>
 #include "topics.h"
 #include "mosquitto_mqtt.h"
-#include "capture.h"
+#include "capture_types.h"
 #include <sys/stat.h>
 #include <errno.h>
 #include <time.h>

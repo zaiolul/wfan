@@ -81,10 +81,10 @@ int is_valid_mac(unsigned char* mac)
 void print_ap_list(struct wifi_ap_info *list, size_t n) 
 {
     for (int i = 0; i < n; i ++) {
-        printf("%d: %s "MAC_FMT"\n", 
+        printf("%d: %s "MAC_FMT" %d\n", 
         i,
         strlen(list[i].ssid) > 0 ? (char*)list[i].ssid : "<hidden>",
-        MAC_BYTES(list[i].bssid));
+        MAC_BYTES(list[i].bssid), list[i].freq);
     }
 }
 
@@ -99,7 +99,7 @@ char *get_client_id(char *iface)
     return id;
 }
 
-int set_timer(int sec, long nsec, void (*cb)(union sigval))
+timer_t set_timer(int sec, long nsec, void (*cb)(union sigval), int one_shot)
 {
     struct sigevent sev;
     timer_t timerid;
@@ -111,16 +111,23 @@ int set_timer(int sec, long nsec, void (*cb)(union sigval))
     sev.sigev_value.sival_ptr = NULL;
     sev.sigev_notify_attributes = NULL;
 
-    if (timer_create(CLOCK_MONOTONIC, &sev, &timerid) != 0) {
+    if (timer_create(CLOCK_REALTIME, &sev, &timerid) != 0) {
         fprintf(stderr, "timer_create failed\n");
-        return 1;
+        return NULL;
     }
 
+    
     its.it_value.tv_sec = sec;
-    its.it_value.tc_nsec = 0;
+    its.it_value.tv_nsec = nsec;
+    
+    if (!one_shot) {
+        its.it_interval.tv_sec = sec;
+        its.it_interval.tv_nsec = nsec;
+    }
 
     if (timer_settime(timerid, 0, &its, NULL) != 0) {
         fprintf(stderr, "timer_settime failed\n");
-        return 1;
+        return NULL;
     }
+    return timerid;
 }

@@ -4,9 +4,12 @@
 #include <sys/types.h>
 #include <pcap/pcap.h>
 #include <time.h>
+#include "capture_types.h"
+#include "netlink.h"
+#define CAP_BUF_SIZE 32000
 
-#define CAP_BUF_SIZE 8096
-
+#define BAND_24G 0
+#define BAND_5G 1
 typedef enum cap_capture_state {
     STATE_IDLE,
     STATE_AP_SEARCH_START,
@@ -107,41 +110,6 @@ enum tagged_params {
     //expand if needed
 };
 
-struct radio_info {
-    u_int16_t channel_freq;
-    int8_t antenna_signal;
-    int8_t noise;
-};
-struct wifi_ap_info {
-    u_int8_t ssid[32];
-    u_int8_t bssid[6];
-    u_int64_t timestamp;
-};
-
-struct cap_pkt_info {
-    struct radio_info radio; 
-    struct wifi_ap_info ap;
-};
-
-#define AP_MAX 32
-#define PKT_MAX 128
-
-typedef enum cap_send_payload_type {
-    AP_LIST,
-    PKT_LIST,
-} cap_payload_t;
-
-struct cap_msg {
-    cap_payload_t type;
-    size_t count;
-    // size_t bytes_len;
-    union {
-        struct wifi_ap_info ap_list[AP_MAX];
-        struct cap_pkt_info pkt_list[PKT_MAX];
-    };
-} __attribute__((packed));
-typedef struct cap_msg cap_msg_t;
-
 typedef void (*cap_send_cb)(cap_msg_t *msg);
 
 struct capture_ctx {
@@ -161,6 +129,12 @@ struct capture_ctx {
 
     cap_send_cb send_cb;
     int override_state;
+
+    timer_t timerid;
+    int cap_band;
+    int cap_channel;
+    int cap_scan_done;
+    struct nl80211_data nl;
 };
 
 #define FRAME_ID(type, subtype) (type | subtype << 4)
@@ -169,7 +143,7 @@ struct capture_ctx {
 
 #define RADIOTAP_BAND_5(hdr) (hdr->data.channel_flags & (1 << 8)) 
 
-#define AP_SEARCH_TIME_S 3
+#define CHAN_PASSIVE_SCAN_MS 999
 #define IDLE_TIME 60
 
 int cap_start_capture(char *dev, cap_send_cb cb);

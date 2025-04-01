@@ -17,7 +17,7 @@ SRCS_MAN=$(wildcard $(MANAGER_SRC)/*.c)
 OBJS_MAN=$(SRCS_MAN:$(MANAGER_SRC)/%.c=$(MANAGER_SRC)/%.o)
 
 LIBS_COM=-lmosquitto -lpthread
-LIBS_SCAN=$(LIBS_COM) -lpcap
+LIBS_SCAN=$(LIBS_COM) -lpcap -lnl-3 -lnl-genl-3
 
 all: scanner manager
 
@@ -32,13 +32,13 @@ $(EXE_MANAGER): $(OBJS_COM) $(OBJS_MAN)
 	$(CC) $^ -o $@ $(LIBS_COM)
 
 $(COMMON_SRC)/%.o: $(COMMON_SRC)/%.c
-	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@ 
+	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -I$(COMMON_SRC) -c $< -o $@ 
 
 $(SCANNER_SRC)/%.o: $(SCANNER_SRC)/%.c
-	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@  
+	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -I$(SCANNER_SRC) -I/usr/include/libnl3 -c $< -o $@  
 
 $(MANAGER_SRC)/%.o: $(MANAGER_SRC)/%.c
-	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@  
+	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -I$(MANAGER_SRC) -c $< -o $@  
 
 clean:
 	rm -f $(COMMON_SRC)/*.o

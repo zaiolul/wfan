@@ -258,6 +258,7 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     if (cap_parse_frame(&cap_info, frame, header->len - radiotap_len))
         return;
 
+    cap_info.ap.freq = cap_info.radio.channel_freq;
     //packet has been parsed, do stuff
     switch(ctx->state) {
         case STATE_AP_SEARCH_LOOP:
@@ -329,21 +330,58 @@ static void _do_idle()
     sleep(1);
     cap_next_state(STATE_IDLE);
 }
+
+void change_chan_timer_cb(union sigval sv)
+{
+    printf("%s() chan: %d\n", __func__, ctx->cap_channel);
+    if (!ctx)
+        return;
+    
+    switch (ctx->cap_band) {
+        case BAND_24G:
+            if(ctx->cap_channel < 1 && ctx->cap_channel > 14)
+               return;
+            else if (ctx->cap_channel >= 14) {
+                ctx->cap_scan_done = 1;
+                return;
+            }
+            break;
+        case BAND_5G:
+            if(ctx->cap_channel < 36 && ctx->cap_channel > 165)
+                return;
+            else if (ctx->cap_channel >= 166){
+                ctx->cap_scan_done = 1;
+                return;
+            }
+            break;
+        default:
+            return;
+    }
+
+    netlink_switch_chan(&ctx->nl, ctx->cap_channel ++);
+}
+
 static void _do_ap_search_start()
 {
     memset(ctx->ap_list, 0, sizeof(struct wifi_ap_info) * AP_MAX);
     memset(&(ctx->selected_ap), 0, sizeof(struct wifi_ap_info));
-    ctx->ap_count = 0;
 
-    time_t t1 = time(&(ctx->start_time));
-    time_t t2 = time(&(ctx->cur_time));
+    ctx->ap_count = 0;
+    ctx->cap_band = BAND_24G;
+    ctx->cap_channel = 1;
+    ctx->cap_scan_done = 0;
+    
+    netlink_switch_chan(&ctx->nl, ctx->cap_channel);
+
     cap_next_state(STATE_AP_SEARCH_LOOP);
+
+    ctx->timerid = set_timer(0, MS_TO_NS(CHAN_PASSIVE_SCAN_MS), change_chan_timer_cb, 0);
 }
 
 static void _do_ap_search_loop()
 {
-    time(&(ctx->cur_time));
-    if (difftime(ctx->cur_time, ctx->start_time) > AP_SEARCH_TIME_S) {
+    if (ctx->cap_scan_done) {
+        timer_delete(ctx->timerid);
         if (ctx->ap_count > 0) {
             ctx->payload = AP_LIST;
             cap_next_state(STATE_SEND);
@@ -357,7 +395,7 @@ static void _do_ap_search_loop()
         }
     }
 
-    pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
+    pcap_dispatch(ctx->handle, 10, cap_packet_handler, NULL);
     cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 
@@ -403,13 +441,21 @@ static void _do_send()
     cap_next_state(next_state);
 }
 
-//used externally, on some event that isn't handled here
+static int freq_to_chan(int freq)
+{
+    if (freq < 2400 || freq > 2500)
+        return -1;
+    return (freq - 2407) / 5;
+
+}
+
 void cap_set_ap(struct wifi_ap_info *ap)
 {
     if (!ap)
         return;
     printf("recv ap: %s\n", ap->ssid);
     memcpy(&ctx->selected_ap, ap, sizeof(struct wifi_ap_info));
+    netlink_switch_chan(&ctx->nl, freq_to_chan(ctx->selected_ap.freq));
     cap_override_state(STATE_PKT_CAP);
 }
 
@@ -422,12 +468,17 @@ int cap_start_capture(char *dev, cap_send_cb cb)
         return -1;
     }
     memset(ctx, 0, sizeof(struct capture_ctx));
-
+    
     ctx->handle = cap_pcap_setup(dev);
     ctx->send_cb = cb;
     if (!ctx->handle) {
         fprintf(stderr, "Failed to setup pcap on device\n");
         return PCAP_ERROR;
+    }
+
+    if (netlink_init(&ctx->nl, dev)) {
+        fprintf(stderr, "Failed to setup netlink\n");
+        return NLE_FAILURE;
     }
 
     cap_next_state(STATE_IDLE);

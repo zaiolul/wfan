@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "capture.h"
+#include "capture_types.h"
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
@@ -19,6 +19,7 @@
 
 #define MAX_ID_LEN 32
 
+#define MS_TO_NS(ms) (ms * 1000000)
 
 enum frame_subtypes {
     FRAME_SUBTYPE_ASSOC_REQ = 0,
@@ -56,5 +57,6 @@ char *get_client_id(char *iface);
 int is_valid_mac(unsigned char* mac);
 void print_ap_list(struct wifi_ap_info *list, size_t n);
 
-int set_timer(int sec, long nsec, void (*cb)(union sigval));
+timer_t set_timer(int sec, long nsec, void (*cb)(union sigval), int one_shot);
+
 #endif
