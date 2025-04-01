@@ -56,5 +56,5 @@ char *get_client_id(char *iface);
 int is_valid_mac(unsigned char* mac);
 void print_ap_list(struct wifi_ap_info *list, size_t n);
 
-int set_timer(int sec, void (*cb)(union sigval));
+int set_timer(int sec, long nsec, void (*cb)(union sigval));
 #endif

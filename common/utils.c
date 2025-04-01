@@ -99,7 +99,7 @@ char *get_client_id(char *iface)
     return id;
 }
 
-int set_timer(int sec, void (*cb)(union sigval))
+int set_timer(int sec, long nsec, void (*cb)(union sigval))
 {
     struct sigevent sev;
     timer_t timerid;
@@ -112,14 +112,15 @@ int set_timer(int sec, void (*cb)(union sigval))
     sev.sigev_notify_attributes = NULL;
 
     if (timer_create(CLOCK_MONOTONIC, &sev, &timerid) != 0) {
-        perror("timer_create");
+        fprintf(stderr, "timer_create failed\n");
         return 1;
     }
 
     its.it_value.tv_sec = sec;
+    its.it_value.tc_nsec = 0;
 
     if (timer_settime(timerid, 0, &its, NULL) != 0) {
-        perror("timer_settime");
+        fprintf(stderr, "timer_settime failed\n");
         return 1;
     }
 }
