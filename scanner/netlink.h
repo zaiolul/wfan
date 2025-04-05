@@ -7,6 +7,7 @@
 #include <linux/nl80211.h>
 #include <errno.h>
 #include <net/if.h>
+#include "utils.h"
 
 struct nl80211_data {
     struct nl_sock *sock;

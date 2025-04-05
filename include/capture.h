@@ -66,6 +66,21 @@ struct wifi_beacon_header {
     u_int16_t seq_ctl;
 }__attribute__((packed));
 
+struct wifi_control_has_ta {
+    struct wifi_frame_control ctrl;
+    u_int16_t id;
+    u_int8_t addr1[6];
+    u_int8_t addr2[6];
+} __attribute__((packed));
+
+struct wifi_control_no_ta {
+    struct wifi_frame_control ctrl;
+    u_int16_t id;
+    u_int8_t addr1[6];
+    u_int8_t addr2[6];
+} __attribute__((packed));
+
+
 struct wifi_data_header {
     struct wifi_frame_control ctrl;
     u_int16_t id;
@@ -107,6 +122,7 @@ struct wifi_tag_param {
 
 enum tagged_params {
     TAG_SSID = 0x00,
+    TAG_DS = 0x03
     //expand if needed
 };
 
@@ -125,7 +141,7 @@ struct capture_ctx {
     struct wifi_ap_info selected_ap;
     pcap_t *handle;
 
-    time_t start_time, cur_time;
+    u_int64_t time;
 
     cap_send_cb send_cb;
     int override_state;
@@ -143,7 +159,7 @@ struct capture_ctx {
 
 #define RADIOTAP_BAND_5(hdr) (hdr->data.channel_flags & (1 << 8)) 
 
-#define CHAN_PASSIVE_SCAN_MS 999
+#define CHAN_PASSIVE_SCAN_MS 150
 #define IDLE_TIME 60
 
 int cap_start_capture(char *dev, cap_send_cb cb);

@@ -21,8 +21,7 @@ state_handler handlers[] = {
     [STATE_PKT_CAP] = {_do_pkt_cap},
     [STATE_SEND] = {_do_send},
     [STATE_END] = {NULL},
-    [STATE_MAX] = {NULL}
-};
+    [STATE_MAX] = {NULL}};
 
 struct radiotap_entry radiotap_entries[] = {
     [RADIOTAP_TSFT] = {8, 8},           // TSFT
@@ -40,10 +39,10 @@ pcap_t *cap_pcap_setup(char *device)
     int ret;
     pcap_t *handle;
     struct bpf_program filter;
-    char filter_exp[] = "wlan[0] & 0xFC == 0x80"; //beacon 80211 frames only
+    char filter_exp[] = "type mgt subtype beacon";
     bpf_u_int32 net;
 
-    handle = pcap_open_live(device, CAP_BUF_SIZE, 0, -1, err_msg);
+    handle = pcap_open_live(device, CAP_BUF_SIZE, 0, 120, err_msg);
     if (handle == NULL)
     {
         fprintf(stderr, "Failed to create handle: %s\n", err_msg);
@@ -55,6 +54,7 @@ pcap_t *cap_pcap_setup(char *device)
         fprintf(stderr, "Could not parse filter: %s\n", pcap_geterr(handle));
         return NULL;
     }
+
     if (pcap_setfilter(handle, &filter) == -1)
     {
         fprintf(stderr, "Could not install filter: %s\n", pcap_geterr(handle));
@@ -70,6 +70,35 @@ void cap_pcap_close(pcap_t *handle)
         return;
 
     pcap_close(handle);
+}
+
+static int cap_add_ap(struct wifi_ap_info *ap)
+{
+    for (int i = 0; i < ctx->ap_count; i++) {
+        if (bssid_equal(ap->bssid, ctx->ap_list[i].bssid)) {
+            return -1;
+        }
+    }
+
+    if (ctx->ap_count >= AP_MAX)
+        return -1;
+
+    printf("ADD AP %s " MAC_FMT " %d\n",
+           strlen(ap->ssid) > 0 ? (char *)ap->ssid : "<hidden>",
+           MAC_BYTES(ap->bssid), ap->channel);
+    memcpy(&(ctx->ap_list[ctx->ap_count++]), ap, sizeof(struct wifi_ap_info));
+
+    return 0;
+}
+
+static int cap_add_pkt(struct cap_pkt_info *pkt)
+{
+    if (ctx->pkt_count >= PKT_MAX)
+        return -1;
+
+    memcpy(&(ctx->pkt_list[ctx->pkt_count++]), pkt, sizeof(struct cap_pkt_info));
+
+    return 0;
 }
 
 static void cap_apply_field_pad(enum radiotap_present_flags flag, u_int8_t *offset, u_int8_t **data)
@@ -141,6 +170,9 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
     struct wifi_tag_param *tag;
     int offset = 0;
 
+    if (ctx->cap_scan_done)
+        return;
+
     while (offset < tag_param_len)
     {
         tag = (struct wifi_tag_param *)ptr;
@@ -149,8 +181,10 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
         {
         case TAG_SSID:
             memcpy(cap_info->ap.ssid, ptr, tag->length);
-            // break;
-            return; //do not really care about any others at this point
+            break;
+        case TAG_DS:
+            cap_info->ap.channel = *(u_int8_t *)ptr;
+            break;
         default:
             break;
         }
@@ -162,15 +196,30 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
 static void cap_parse_mgmt_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_t len)
 {
     struct wifi_frame_control *ctrl = (struct wifi_frame_control *)frame;
-    switch (ctrl->subtype)
-    {
+    switch (ctrl->subtype) {
     case FRAME_SUBTYPE_BEACON:
         struct wifi_beacon_header *beacon = (struct wifi_beacon_header *)frame;
         u_int8_t *data = (u_int8_t *)beacon + sizeof(struct wifi_beacon_header);
         memcpy(&(cap_info->ap.bssid[0]), &(beacon->addr3[0]), 6);
         cap_parse_beacon_tags(cap_info, data, len - sizeof(struct wifi_beacon_header));
+        if (ctx->state == STATE_AP_SEARCH_LOOP)
+            cap_add_ap(&cap_info->ap);
         break;
     // ignore others for now
+    default:
+        break;
+    }
+}
+
+static void cap_parse_ctrl_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_t len)
+{
+    struct wifi_frame_control *ctrl = (struct wifi_frame_control *)frame;
+    switch (ctrl->subtype) {
+    case FRAME_SUBTYPE_RTS:
+    case FRAME_SUBTYPE_BLOCK_ACK:
+        struct wifi_control_has_ta *c = (struct wifi_control_has_ta *)frame;
+        memcpy(&(cap_info->ap.bssid[0]), &(c->addr2[0]), 6);
+        break;
     default:
         break;
     }
@@ -180,10 +229,10 @@ static int cap_parse_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_
 {
     int ret;
 
-    if (len < 24) // smallest wifi mac header size
-        return -1;
-
     struct wifi_frame_control *ctrl = (struct wifi_frame_control *)frame;
+
+    cap_info->type = ctrl->type;
+    cap_info->subtype = ctrl->subtype;
 
     switch (ctrl->type)
     {
@@ -192,45 +241,12 @@ static int cap_parse_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_
         cap_parse_mgmt_frame(cap_info, frame, len);
         break;
     case FRAME_TYPE_CTRL:
+        // cap_parse_ctrl_frame(cap_info, frame, len);
+        // break;
     case FRAME_TYPE_DATA:
     default:
         break;
     }
-    return 0;
-}
-
-static int bssid_equal(u_int8_t *a, u_int8_t *b)
-{
-    for (int i = 0; i < 6; i ++) {
-        if (a[i] != b[i])
-            return 0;
-    }
-    
-    return 1;
-}
-
-static int cap_add_ap(struct wifi_ap_info *ap)
-{
-    for (int i = 0; i < ctx->ap_count; i ++) {
-        if (bssid_equal(ap->bssid, ctx->ap_list[i].bssid)) {
-            wfs_debug("BSSID %s EXISTS IN LIST\n", ap->ssid);
-            return -1;
-        }
-    }
-
-    if (ctx->ap_count < AP_MAX -1)
-        memcpy(&(ctx->ap_list[ctx->ap_count++]),ap, sizeof(struct wifi_ap_info));
-    else
-        return -1;
-    wfs_debug("Added AP %s to list\n", ap.ssid);
-    return 0;
-}
-
-static int cap_add_pkt(struct cap_pkt_info *pkt)
-{
-    memcpy(&(ctx->pkt_list[ctx->pkt_count++]), pkt, sizeof(struct cap_pkt_info));
-    wfs_debug("Added pkt info to list\n", ap.ssid);
-
     return 0;
 }
 
@@ -249,42 +265,21 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     radiotap_len = cap_parse_radiotap(&cap_info, packet);
     if (radiotap_len < 0)
         return;
-
-    if (!cap_info.radio.antenna_signal)
-        return;
-
+    
     frame = packet + radiotap_len;
-
     if (cap_parse_frame(&cap_info, frame, header->len - radiotap_len))
         return;
 
-    cap_info.ap.freq = cap_info.radio.channel_freq;
-    //packet has been parsed, do stuff
-    switch(ctx->state) {
-        case STATE_AP_SEARCH_LOOP:
-            if (cap_add_ap(&(cap_info.ap)) < 0) {
-                wfs_debug("Failed to add ap %s\n", cap_info.ap.ssid);
-                return;
-            }
-            printf("added ap %s\n", cap_info.ap.ssid);
-            break;
-        case STATE_PKT_CAP:
-            if (!bssid_equal(ctx->selected_ap.bssid, cap_info.ap.bssid))
-                return;
+    if (ctx->state != STATE_PKT_CAP)
+        return;
 
-            if (cap_add_pkt(&cap_info) < 0) {
-                printf("Failed to add ap %s\n", cap_info.ap.ssid);
-
-                return;
-            }
-            printf("added pkt (%d), rssi %d\n",ctx->pkt_count, cap_info.radio.antenna_signal);
-        default:
-            break;
-    }
+    if (!bssid_equal(ctx->selected_ap.bssid, cap_info.ap.bssid))
+        return;
+    cap_add_pkt(&cap_info);
+    // printf("added pkt (%d), rssi %d\n", ctx->pkt_count, cap_info.radio.antenna_signal);
 }
 
-
-static char* cap_state_to_str(enum cap_capture_state state)
+static char *cap_state_to_str(enum cap_capture_state state)
 {
     switch (state) {
         case STATE_AP_SEARCH_START:
@@ -299,24 +294,24 @@ static char* cap_state_to_str(enum cap_capture_state state)
             return "STATE_IDLE";
         default:
             return "UNKNOWN";
-        }
-    
-    //should not reach
+    }
+
+    // should not reach
     return NULL;
 }
 
-//bandaid fix to stop work if end received externally
+// bandaid fix to stop work if end received externally
 static void cap_next_state(cap_state_t state)
 {
     if (!ctx)
         return;
 
-    if (!ctx->override_state) 
+    if (!ctx->override_state)
         ctx->state = state;
     ctx->override_state = 0;
 }
 
-void cap_override_state(cap_state_t state) 
+void cap_override_state(cap_state_t state)
 {
     if (!ctx)
         return;
@@ -331,34 +326,32 @@ static void _do_idle()
     cap_next_state(STATE_IDLE);
 }
 
-void change_chan_timer_cb(union sigval sv)
+static void cap_next_channel()
 {
-    printf("%s() chan: %d\n", __func__, ctx->cap_channel);
-    if (!ctx)
-        return;
-    
     switch (ctx->cap_band) {
-        case BAND_24G:
-            if(ctx->cap_channel < 1 && ctx->cap_channel > 14)
-               return;
-            else if (ctx->cap_channel >= 14) {
-                ctx->cap_scan_done = 1;
-                return;
-            }
-            break;
-        case BAND_5G:
-            if(ctx->cap_channel < 36 && ctx->cap_channel > 165)
-                return;
-            else if (ctx->cap_channel >= 166){
-                ctx->cap_scan_done = 1;
-                return;
-            }
-            break;
-        default:
+    case BAND_24G:
+        if (ctx->cap_channel < 1 && ctx->cap_channel > 14)
             return;
+        else if (ctx->cap_channel >= 13) {
+            printf("Scan done\n");
+            ctx->cap_scan_done = 1;
+            return;
+        }
+        break;
+    case BAND_5G:
+        if (ctx->cap_channel < 36 && ctx->cap_channel > 165)
+            return;
+        else if (ctx->cap_channel >= 165) {
+            ctx->cap_scan_done = 1;
+            return;
+        }
+        break;
+    default:
+        return;
     }
+    ctx->cap_channel++;
 
-    netlink_switch_chan(&ctx->nl, ctx->cap_channel ++);
+    netlink_switch_chan(&ctx->nl, ctx->cap_channel);
 }
 
 static void _do_ap_search_start()
@@ -370,43 +363,45 @@ static void _do_ap_search_start()
     ctx->cap_band = BAND_24G;
     ctx->cap_channel = 1;
     ctx->cap_scan_done = 0;
-    
+
     netlink_switch_chan(&ctx->nl, ctx->cap_channel);
 
     cap_next_state(STATE_AP_SEARCH_LOOP);
 
-    ctx->timerid = set_timer(0, MS_TO_NS(CHAN_PASSIVE_SCAN_MS), change_chan_timer_cb, 0);
+    ctx->time = time_millis();
 }
 
 static void _do_ap_search_loop()
 {
     if (ctx->cap_scan_done) {
-        timer_delete(ctx->timerid);
         if (ctx->ap_count > 0) {
             ctx->payload = AP_LIST;
             cap_next_state(STATE_SEND);
             return;
         }
-        else {
-            printf("No APs found\n");
-
-            cap_next_state(STATE_IDLE);
-            return;
-        }
     }
 
-    pcap_dispatch(ctx->handle, 10, cap_packet_handler, NULL);
+    u_int64_t elapsed = time_elapsed_ms(ctx->time);
+    // printf("%llu ms\n", elapsed);
+    if (time_elapsed_ms(ctx->time) >= CHAN_PASSIVE_SCAN_MS) {
+        cap_next_channel();
+        ctx->time = time_millis();
+    }
+
+    pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
     cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 
 static void _do_pkt_cap()
 {
-    if (ctx->pkt_count == PKT_MAX - 1) {
+    if (ctx->pkt_count == PKT_MAX) {
+        printf("packet capture time %llu ms\n", time_elapsed_ms(ctx->time));
+        ctx->time = time_millis();
         ctx->payload = PKT_LIST;
         cap_next_state(STATE_SEND);
         return;
     }
-    pcap_dispatch(ctx->handle,-1, cap_packet_handler, NULL);
+    pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
     cap_next_state(STATE_PKT_CAP);
 }
 
@@ -446,7 +441,6 @@ static int freq_to_chan(int freq)
     if (freq < 2400 || freq > 2500)
         return -1;
     return (freq - 2407) / 5;
-
 }
 
 void cap_set_ap(struct wifi_ap_info *ap)
@@ -455,10 +449,10 @@ void cap_set_ap(struct wifi_ap_info *ap)
         return;
     printf("recv ap: %s\n", ap->ssid);
     memcpy(&ctx->selected_ap, ap, sizeof(struct wifi_ap_info));
-    netlink_switch_chan(&ctx->nl, freq_to_chan(ctx->selected_ap.freq));
+    netlink_switch_chan(&ctx->nl, ctx->selected_ap.channel);
+    ctx->time = time_millis();
     cap_override_state(STATE_PKT_CAP);
 }
-
 
 int cap_start_capture(char *dev, cap_send_cb cb)
 {
@@ -468,7 +462,7 @@ int cap_start_capture(char *dev, cap_send_cb cb)
         return -1;
     }
     memset(ctx, 0, sizeof(struct capture_ctx));
-    
+
     ctx->handle = cap_pcap_setup(dev);
     ctx->send_cb = cb;
     if (!ctx->handle) {
@@ -495,4 +489,3 @@ int cap_start_capture(char *dev, cap_send_cb cb)
     ctx = NULL;
     return 0;
 }
-
