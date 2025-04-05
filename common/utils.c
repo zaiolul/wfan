@@ -6,7 +6,7 @@
 #include "utils.h"
 
 
-char *wfs_mgmt_frame_to_str(enum frame_subtypes subtype) {
+char *wfs_mgmt_frame_to_str(enum mgmt_frame_subtypes subtype) {
     switch (subtype) {
         case FRAME_SUBTYPE_ASSOC_REQ:
             return "Association Request";
@@ -84,7 +84,7 @@ void print_ap_list(struct wifi_ap_info *list, size_t n)
         printf("%d: %s "MAC_FMT" %d\n", 
         i,
         strlen(list[i].ssid) > 0 ? (char*)list[i].ssid : "<hidden>",
-        MAC_BYTES(list[i].bssid), list[i].freq);
+        MAC_BYTES(list[i].bssid), list[i].channel);
     }
 }
 
@@ -130,4 +130,33 @@ timer_t set_timer(int sec, long nsec, void (*cb)(union sigval), int one_shot)
         return NULL;
     }
     return timerid;
+}
+
+long long time_millis() 
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (ts.tv_sec * 1000LL) + (ts.tv_nsec / 1000000);
+}
+
+long long time_elapsed_ms(long long start)
+{
+    long long now = time_millis();
+    return now - start;
+}
+
+int msleep(long msec)
+{
+    struct timespec req = {0};
+    time_t sec = msec / 1000;
+    msec -= sec * 1000;
+    req.tv_sec = sec;
+    req.tv_nsec = msec * 1000000L;
+
+    return nanosleep(&req, NULL);
+}
+
+int bssid_equal(unsigned char *a, unsigned char *b)
+{
+    return memcmp(a, b, 6) == 0;
 }
