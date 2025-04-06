@@ -142,7 +142,6 @@ struct capture_ctx {
     pcap_t *handle;
 
     u_int64_t time;
-
     cap_send_cb send_cb;
     int override_state;
 

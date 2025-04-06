@@ -35,6 +35,7 @@ int mqtt_subscribe_topic(topic_t topic)
     if (ret != MOSQ_ERR_SUCCESS)
         printf("Failed subscription: %s, %s\n", topic.name,  mosquitto_strerror(ret));
 
+    printf("subscribe topic: %s qos: %d\n", topic.name, topic.qos);
     pthread_mutex_unlock(&ctx->lock);
     return ret;
 }
@@ -194,7 +195,7 @@ int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb)
     mosquitto_message_callback_set(ctx->mosquitto, mqtt_on_message);
     mosquitto_publish_callback_set(ctx->mosquitto, mqtt_on_publish);
 
-    if ((ret = mosquitto_will_set(ctx->mosquitto, will.name, 0, NULL, will.qos, true))) {
+    if ((ret = mosquitto_will_set(ctx->mosquitto, will.name, 0, NULL, will.qos, false))) {
         printf("Will set err: %s\n", mosquitto_strerror(ret));
         return ret;
     }

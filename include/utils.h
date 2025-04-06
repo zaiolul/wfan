@@ -65,7 +65,7 @@ void print_ap_list(struct wifi_ap_info *list, size_t n);
 
 #define ARR_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 
-timer_t set_timer(int sec, long nsec, void (*cb)(union sigval), int one_shot);
+timer_t set_timer(int sec, long nsec, void (*cb)(union sigval), void* cb_data, int one_shot);
 long long time_millis();
 long long time_elapsed_ms(long long start);
 int msleep(long msec);

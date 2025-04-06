@@ -13,9 +13,10 @@
 #include <time.h>
 #include <stdarg.h>
 #include <signal.h>
+#include "circ_buf.h"
 
 #define MAX_CLIENTS 8
-
+#define PKT_STATS_BUF_SIZE PKT_MAX 
 #define OUTPUT_DIR "./scan_results"
 #define RES_FILE_EXT ".csv"
 typedef enum state {
@@ -26,10 +27,12 @@ typedef enum state {
 } state_t;
 
 struct scanner_signal_stats {
-    float average;
-    float variance;
+    int average;
+    circ_buf_t *signal_buf;
+    circ_buf_t *variance_buf;
     int done;
 };
+
 struct scanner_client {
     char id[MAX_ID_LEN];
     unsigned long last_msg;
@@ -39,6 +42,7 @@ struct scanner_client {
     int finished_learn;
     int ready;
     FILE *result_file;
+    timer_t crash_timerid;
     struct scanner_signal_stats stats;
 };
 

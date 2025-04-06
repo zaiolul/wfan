@@ -206,7 +206,7 @@ int main(int argc, char *argv[])
 
     prepare_topics(ctx->client_id, ctx->sub_topics);
 
-    sprintf(will.name, "%s/%s", SCANNER_PUB_CMD_STOP, ctx->client_id);
+    sprintf(will.name, "%s/%s", SCANNER_PUB_CMD_CRASH, ctx->client_id);
 
     if ((ret = mqtt_setup(ctx->sub_topics, will,&msg_recv_cb)))
         goto mqtt_err;
@@ -220,8 +220,6 @@ int main(int argc, char *argv[])
         if (cap_start_capture(ctx->dev, &msg_send_cb))
             break;
     }
-         
-    pthread_cancel(mqtt_thread);
     pthread_join(mqtt_thread, NULL);
 
 mqtt_err:

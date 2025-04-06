@@ -99,7 +99,7 @@ char *get_client_id(char *iface)
     return id;
 }
 
-timer_t set_timer(int sec, long nsec, void (*cb)(union sigval), int one_shot)
+timer_t set_timer(int sec, long nsec, void (*cb)(union sigval), void* cb_data, int one_shot)
 {
     struct sigevent sev;
     timer_t timerid;
@@ -108,7 +108,7 @@ timer_t set_timer(int sec, long nsec, void (*cb)(union sigval), int one_shot)
     // Configure the timer to call timer_handler
     sev.sigev_notify = SIGEV_THREAD;
     sev.sigev_notify_function = cb;
-    sev.sigev_value.sival_ptr = NULL;
+    sev.sigev_value.sival_ptr = cb_data;
     sev.sigev_notify_attributes = NULL;
 
     if (timer_create(CLOCK_REALTIME, &sev, &timerid) != 0) {

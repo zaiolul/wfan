@@ -239,6 +239,7 @@ static int cap_parse_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_
     case FRAME_TYPE_MGMT:
         wfs_debug("-MANAGEMENT FRAME-\n", NULL);
         cap_parse_mgmt_frame(cap_info, frame, len);
+        return 0;
         break;
     case FRAME_TYPE_CTRL:
         // cap_parse_ctrl_frame(cap_info, frame, len);
@@ -247,7 +248,7 @@ static int cap_parse_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_
     default:
         break;
     }
-    return 0;
+    return -1;
 }
 
 static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *header, const unsigned char *packet)
@@ -388,7 +389,7 @@ static void _do_ap_search_loop()
         ctx->time = time_millis();
     }
 
-    pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
+    pcap_dispatch(ctx->handle, 3, cap_packet_handler, NULL);
     cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 

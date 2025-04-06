@@ -4,27 +4,89 @@ static struct manager_ctx *ctx;
 
 struct threads_shared shared = {0};
 
-//Welfords algorithm, single pass variance
-void update_client_scan_stats(struct scanner_client *client, struct cap_pkt_info *list, size_t count)
-{   float var = 0, avg = 0, prev_avg = 0, prev_var = 0;
-    int n = 0;
-    int signal;
+int get_signal_avg(struct scanner_client *client)
+{
+    int sum = 0;
+    int count = client->stats.signal_buf->count;
 
-    var = client->stats.variance;
-    avg = client->stats.average;
+    for (int i = 0; i < count; i ++)
+        sum += *(int *)circ_buf_get_idx(client->stats.signal_buf, count - 1 - i);
 
-    for(int i = 0; i < count; i ++) {
-        n ++;
-        signal = list[i].radio.antenna_signal;
-        avg = prev_avg + (signal - prev_avg) / n;
-        var = prev_var + (signal - avg) * (signal - prev_avg);
-        prev_avg = avg;
-        prev_var = var;
+    client->stats.average = sum / count;
+    return client->stats.average;
+}
+
+int get_var_sum(struct scanner_client *client)
+{
+    int sum = 0;
+    int count = client->stats.variance_buf->count > 5 ? 5 : client->stats.variance_buf->count;
+
+    for (int i = 0; i < count; i ++) {
+        sum += *(int *)circ_buf_get_idx(client->stats.variance_buf, client->stats.variance_buf->count - 1 - i);
     }
 
-    client->stats.average = avg;
-    client->stats.variance = var / (n - 1);
-    client->stats.done = 1;
+    return sum;
+}
+
+int client_res_printf(struct scanner_client *client, const char *fmt, ...)
+{
+    va_list args;
+    int ret;
+    if (!client->result_file)
+        return -1;
+
+    va_start(args, fmt);
+    ret = vfprintf(client->result_file, fmt, args);
+    va_end( args );
+
+    return ret;
+}
+
+void write_pkt_data(struct scanner_client *client, struct cap_pkt_info pkt)
+{
+    struct radio_info *r;
+    if (!client->result_file)
+        return; //TODO: gracefully handle and maybe unregister client, should not probably reach this far if file not created tbh
+    
+    r = &pkt.radio;
+    if (client_res_printf(client, "%d;%d;%d;%d\n",
+        r->antenna_signal, client->stats.average, r->antenna_signal - client->stats.average, get_var_sum(client)) < 0)
+        printf("failed to write client result\n");
+    
+    fflush(client->result_file);
+}
+
+void update_client_scan_stats(struct scanner_client *client, struct cap_pkt_info *list, size_t count)
+{   
+    int signal;
+    int avg, var, dev;
+
+    if (!client->stats.done) {
+        for (int i = 0; i < count; i ++) {
+            signal = list[i].radio.antenna_signal;
+            circ_buf_put(client->stats.signal_buf, &signal);
+        }
+        
+        if (client->stats.signal_buf->count == PKT_STATS_BUF_SIZE) {
+            client->stats.done = 1;
+            client_res_printf(client, "%s;"MAC_FMT";%d\n",  
+                ctx->selected_ap.ssid, MAC_BYTES(ctx->selected_ap.bssid),
+                ctx->selected_ap.channel);
+            client->stats.done = 1;
+        } else return;
+    } else {
+
+        for (int i = 0; i < count; i ++) {
+            signal = list[i].radio.antenna_signal;
+            circ_buf_put(client->stats.signal_buf, &signal);
+            avg = get_signal_avg(client);
+            dev = signal - avg;
+            var = dev * dev;
+            circ_buf_put(client->stats.variance_buf, &var);
+            write_pkt_data(client, list[i]);
+        }
+    }
+
 }
 
 int create_results_dir()
@@ -73,20 +135,6 @@ int client_open_resfile(struct scanner_client *client)
     }
 
     return 0;
-}
-
-int client_res_printf(struct scanner_client *client, const char *fmt, ...)
-{
-    va_list args;
-    int ret;
-    if (!client->result_file)
-        return -1;
-
-    va_start(args, fmt);
-    ret = vfprintf(client->result_file, fmt, args);
-    va_end( args );
-
-    return ret;
 }
 
 void next_state(state_t state) {
@@ -200,28 +248,23 @@ void save_common_aps(struct ap_entry *entries, size_t n_entries)
     }
 }
 
-void write_pkt_data(struct scanner_client *client, struct cap_pkt_info *list, size_t count)
-{
-    struct radio_info *r;
-    if (!client->result_file)
-        return; //TODO: gracefully handle and maybe unregister client, should not probably reach this far if file not created tbh
-    
-
-    for (int i = 0; i < count; i ++) {
-        r = &list[i].radio;
-        if (client_res_printf(client, "%d;%f\n",
-            r->antenna_signal, r->antenna_signal - client->stats.average) < 0)
-            printf("failed to write client result\n");
-    }
-    fflush(client->result_file);
-}
-
 struct wifi_ap_info *select_shared_ap(int idx) 
 {
     if (idx < 0 || idx >= ctx->n_cmn_ap)
         return NULL;
     printf("SELECTED AP: %s\n", ctx->common_aps[idx].ssid);
     return &ctx->common_aps[idx];
+}
+
+void send_selected_ap(struct wifi_ap_info *ap)
+{
+    topic_t select_ap;
+    payload_t ap_payload;
+    strncpy(select_ap.name, MANAGER_PUB_CMD_SELECT_AP, sizeof(MANAGER_PUB_CMD_SELECT_AP));
+    select_ap.qos = 1;
+    ap_payload.data = (void *)ap;
+    ap_payload.len = sizeof(struct wifi_ap_info);
+    mqtt_publish_topic(select_ap, ap_payload);
 }
 
 void handle_data(char *topic, void *data, unsigned int len)
@@ -264,20 +307,11 @@ void handle_data(char *topic, void *data, unsigned int len)
             break;
 
         case PKT_LIST:
-            if (!client->stats.done) {
-                update_client_scan_stats(client, msg->pkt_list, msg->count);
-                if (client_open_resfile(client)) {
-                    printf("Can't open client results file\n");
-                    break;
-                }
-                client_res_printf(client, "%s;"MAC_FMT"\n", ctx->selected_ap.ssid, MAC_BYTES(ctx->selected_ap.bssid)); //ssid;mac
-                client_res_printf(client, "%d;%f;%f\n", msg->pkt_list[0].radio.channel_freq,
-                    client->stats.average, client->stats.variance); //channel, listen average, listen variance
+            if (client_open_resfile(client)) {
+                printf("Can't open client results file\n");
                 break;
             }
-          
-         
-            write_pkt_data(client, msg->pkt_list, msg->count);
+            update_client_scan_stats(client, msg->pkt_list, msg->count);
             break;
     }
     free(entries);
@@ -290,6 +324,19 @@ int remove_client(int idx)
         ctx->clients[i] = ctx->clients[i + 1];
     }
     ctx->client_count --;
+}
+
+void client_crash_cb(union sigval sv)
+{
+    pthread_mutex_lock(&shared.lock);
+    struct scanner_client *client = (struct scanner_client *)sv.sival_ptr;
+    if (client->ready)
+        return;
+
+    printf("Client %s crashed and was unresponsive. Clear\n", client->id);
+    int idx = get_client_idx(ctx->clients, ctx->client_count, client->id);
+    remove_client(idx);
+    pthread_mutex_unlock(&shared.lock);
 }
 
 void handle_client_state(char *cmd) {
@@ -305,18 +352,6 @@ void handle_client_state(char *cmd) {
     int recv_id_len;
     int idx = get_client_idx(ctx->clients, ctx->client_count, id);
 
-    if (idx >= 0) {
-        printf("Unregister client %s\n", id);
-        client_close_resfile(&ctx->clients[idx]);
-        remove_client(idx);
-        goto done;
-    }
-
-    if (ctx->client_count == MAX_CLIENTS) {
-        printf("Max number of clients reached\n");
-        goto done;
-    }
-
     recv_id_len = strlen(id);
 
     if (!strlen) {
@@ -324,15 +359,48 @@ void handle_client_state(char *cmd) {
         goto done;
     }
 
+    sprintf(reg_ack.name, "%s/%s/%s", TOPIC_CMD_BASE, id, SCANNER_REG_ACK);
+
     if (!strncmp(c,CMD_REGISTER , sizeof(CMD_REGISTER))) {
+        if (idx >= 0) {
+            if (ctx->clients[idx].crash_timerid) {
+                // might have crashed, now back online
+                timer_delete(ctx->clients[idx].crash_timerid);
+                ctx->clients[idx].crash_timerid = NULL;
+                printf("Client %s back online\n", id);
+                mqtt_publish_topic(reg_ack, empty);  
+                if (ctx->state == CAPTURING) {
+                    ctx->clients[idx].ready = 1;
+                    send_selected_ap(&ctx->selected_ap);
+                }
+                goto done;
+            }
+
+            printf("Unregister client %s\n", id);
+            client_close_resfile(&ctx->clients[idx]);
+            remove_client(idx);
+            goto done;
+        }
+
+        if (ctx->client_count == MAX_CLIENTS) {
+            printf("Max number of clients reached\n");
+            goto done;
+        }
         strncpy(client.id, id, MAX_ID_LEN);
+        client.stats.signal_buf = circ_buf_init(sizeof(int), PKT_STATS_BUF_SIZE);
+        client.stats.variance_buf = circ_buf_init(sizeof(int), PKT_STATS_BUF_SIZE);
         ctx->clients[ctx->client_count++] = client;
         printf("Registered new client: %s\n", client.id);
 
-        sprintf(reg_ack.name, "%s/%s/%s", TOPIC_CMD_BASE, client.id, SCANNER_REG_ACK);
         mqtt_publish_topic(reg_ack, empty);    
+    } else if (!strncmp(c, CMD_CRASH , sizeof(CMD_CRASH))) {
+        if (idx < 0)
+            goto done;
+        printf("Client %s crashed\n", id);
+        ctx->clients[idx].ready = 0;
+        ctx->clients[idx].crash_timerid = set_timer(60, 0, client_crash_cb, &ctx->clients[idx], 1);
     }
-
+    
 done:
     free(cmd_dup);
     free(cmd_dup_id);
@@ -347,8 +415,7 @@ void msg_recv_cb(const char *topic, void *data, unsigned int len)
         //cmd is last part of the topic, so we can do a cheeky trick here 
         //since topic group is separated by /
         handle_data(topic, data, len);
-    } else if (mqtt_is_sub_match(MANAGER_SUB_CMD_REGISTER, topic) ||
-        mqtt_is_sub_match(MANAGER_SUB_CMD_STOP, topic)) {
+    } else if (mqtt_is_sub_match(SCANNER_SUB_CMD_ID, topic)) {
         //first check failed so we must have got a cmd for our ID
         char *cmd = topic + strlen(TOPIC_CMD_BASE) + 1;
         handle_client_state(cmd);
@@ -362,10 +429,12 @@ void prepare_topics(char *client_id, topic_t *topics)
     topic_t data = {MANAGER_SUB_DATA, 1};
     topic_t cmd_reg = {MANAGER_SUB_CMD_REGISTER, 2};
     topic_t cmd_stop = {MANAGER_SUB_CMD_STOP, 1};
+    topic_t cmd_crash = {MANAGER_SUB_CMD_CRASH, 1};
 
     topics[0] = data;
     topics[1] = cmd_reg;
     topics[2] = cmd_stop;
+    topics[3] = cmd_crash;
 }
 
 void *mqtt_thread_func(void *arg)
@@ -374,25 +443,14 @@ void *mqtt_thread_func(void *arg)
     pthread_exit(NULL);
 }
 
-//test
-// void timer_learn(union sigval)
-// {
-//    pthread_mutex_lock(&shared.lock);
-   
-//    pthread_mutex_unlock(&shared.lock);
-// }
-
 int main(int argc, char *argv[])
 {   
     int ret;
     pthread_t mqtt_thread, input_thread;
     topic_t sub_topics[MQTT_MAX_TOPICS] = {0};
     topic_t will = {CMD_ALL_STOP, 1};
-    topic_t select_ap = {MANAGER_PUB_CMD_SELECT_AP, 1};
+    topic_t select_ap = {MANAGER_PUB_CMD_SELECT_AP, 1};    
     struct wifi_ap_info *ap_ptr;
-    payload_t ap_payload = {NULL, sizeof(struct wifi_ap_info)};
-
-    // set_timer(3, timer_learn);
 
     ctx = malloc(sizeof(struct manager_ctx));
     ctx->state = IDLE;
@@ -432,10 +490,9 @@ int main(int argc, char *argv[])
                 }
                 memcpy(&ctx->selected_ap, ap_ptr, sizeof(struct wifi_ap_info)); 
                 printf("send ap: %s\n", ap_ptr->ssid);
-                ap_payload.data = (void*)ap_ptr;
-                mqtt_publish_topic(select_ap, ap_payload);
+                send_selected_ap(ap_ptr);
                 time(&ctx->cap_start_time);
-                next_state(IDLE);
+                next_state(CAPTURING);
 
                 break;
             case IDLE:
@@ -443,12 +500,13 @@ int main(int argc, char *argv[])
             case CAPTURING:
                 break;
         }
-        if (ctx->state != IDLE) { 
+        if (ctx->state != IDLE || ctx->state != CAPTURING) { 
             pthread_mutex_unlock(&shared.lock);
             continue;
         }
         pthread_mutex_unlock(&shared.lock);
-
+        
+        printf("READ INPUT:\n");
         scanf(" %d", &opt);
         switch (opt) {
             case 1:
