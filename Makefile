@@ -16,6 +16,10 @@ OBJS_SCAN=$(SRCS_SCAN:$(SCANNER_SRC)/%.c=$(SCANNER_SRC)/%.o)
 SRCS_MAN=$(wildcard $(MANAGER_SRC)/*.c)
 OBJS_MAN=$(SRCS_MAN:$(MANAGER_SRC)/%.c=$(MANAGER_SRC)/%.o)
 
+SRCS_JSON=$(wildcard $(COMMON_SRC)/json/*.c)
+OBJS_JSON=$(SRCS_JSON:$(COMMON_SRC)/json/%.c=$(COMMON_SRC)/json/%.o)
+OBJS_COM += $(OBJS_JSON)
+
 LIBS_COM=-lmosquitto -lpthread
 LIBS_SCAN=$(LIBS_COM) -lpcap -lnl-3 -lnl-genl-3
 
@@ -32,10 +36,10 @@ $(EXE_MANAGER): $(OBJS_COM) $(OBJS_MAN)
 	$(CC) $^ -o $@ $(LIBS_COM)
 
 $(COMMON_SRC)/%.o: $(COMMON_SRC)/%.c
-	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -I$(COMMON_SRC) -c $< -o $@ 
+	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -I$(COMMON_SRC) -I$(COMMON_SRC)/json -c $< -o $@ 
 
 $(SCANNER_SRC)/%.o: $(SCANNER_SRC)/%.c
-	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -I$(SCANNER_SRC) -I/usr/include/libnl3 -c $< -o $@  
+	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -I$(SCANNER_SRC) -I/usr/include/libnl3  -I$(COMMON_SRC)/json -c $< -o $@  
 
 $(MANAGER_SRC)/%.o: $(MANAGER_SRC)/%.c
 	$(CC) $(EXTRA_CFLAGS) -I$(INCLUDE_DIR) -I$(MANAGER_SRC) -c $< -o $@  
