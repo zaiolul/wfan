@@ -1,4 +1,5 @@
 #include "scanner.h"
+#include "cJSON.h"
 
 #define TO_STR_VAL(val) #val
 #define TO_STR(val) TO_STR_VAL(val)
@@ -70,7 +71,8 @@ void parse_args(int argc, char *argv[])
     wfs_debug("Channels: %d\n", ctx->n_chans);
 }
 
-void msg_send_cb(cap_msg_t *msg)
+//send json formatted string
+void msg_send_cb(char *msg)
 {
     pthread_mutex_lock(&shared.lock);
     payload_t payload;
@@ -78,16 +80,17 @@ void msg_send_cb(cap_msg_t *msg)
 
     topic.qos = 1;
     payload.data = (void*)msg;
-    payload.len =  sizeof(cap_msg_t);
+    payload.len =  strlen(msg);
 
     sprintf(topic.name, "%s/%s", SCANNER_PUB_DATA, ctx->client_id);
-    
     mqtt_publish_topic(topic, payload);
+
     pthread_mutex_unlock(&shared.lock);
 }
 
 void handle_cmd_all(char *cmd, void *data, unsigned int len)
 {
+    cJSON *json;
     struct wifi_ap_info *ap;
 
     if (!strcmp(cmd, CMD_STOP)) {
@@ -103,9 +106,11 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
         if (!ctx->registered)
             return;
         printf("DO AP SELECT\n");
-        ap = (struct wifi_ap_info *)data;
+        json = cJSON_Parse(data);
+        printf("json: %s\n", cJSON_Print(json));
+        // ap = (struct wifi_ap_info *)data;
          
-        cap_set_ap(ap);
+        // cap_set_ap(ap);
     }
 }
 

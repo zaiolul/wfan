@@ -6,6 +6,8 @@
 #include <time.h>
 #include "capture_types.h"
 #include "netlink.h"
+#include "cJSON.h"
+
 #define CAP_BUF_SIZE 32000
 
 #define BAND_24G 0
@@ -126,7 +128,7 @@ enum tagged_params {
     //expand if needed
 };
 
-typedef void (*cap_send_cb)(cap_msg_t *msg);
+typedef void (*cap_send_cb)(char *msg);
 
 struct capture_ctx {
     struct wifi_ap_info ap_list[AP_MAX];

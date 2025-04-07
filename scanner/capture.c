@@ -3,6 +3,7 @@
 #include "utils.h"
 #include <fcntl.h>
 #include <unistd.h>
+#include "cJSON.h"
 
 static struct capture_ctx *ctx;
 
@@ -352,7 +353,7 @@ static void cap_next_channel()
     }
     ctx->cap_channel++;
 
-    netlink_switch_chan(&ctx->nl, ctx->cap_channel);
+    // netlink_switch_chan(&ctx->nl, ctx->cap_channel);
 }
 
 static void _do_ap_search_start()
@@ -362,7 +363,7 @@ static void _do_ap_search_start()
 
     ctx->ap_count = 0;
     ctx->cap_band = BAND_24G;
-    ctx->cap_channel = 1;
+    ctx->cap_channel = 11;
     ctx->cap_scan_done = 0;
 
     netlink_switch_chan(&ctx->nl, ctx->cap_channel);
@@ -406,22 +407,75 @@ static void _do_pkt_cap()
     cap_next_state(STATE_PKT_CAP);
 }
 
+
+void ap_list_to_json(cJSON *json, struct wifi_ap_info *ap_list, size_t count)
+{
+    char bssid[16];
+    if (!json)
+        return;
+
+    cJSON *list = cJSON_CreateArray();
+    for (size_t i = 0; i < count; i++) {
+        sprintf(bssid, MAC_FMT, MAC_BYTES(ap_list[i].bssid));
+        cJSON *ap = cJSON_CreateObject();
+        cJSON_AddStringToObject(ap, "ssid", (char *)ap_list[i].ssid);
+        cJSON_AddStringToObject(ap, "bssid", bssid);
+        cJSON_AddNumberToObject(ap, "channel", ap_list[i].channel);
+        cJSON_AddItemToArray(list, ap);
+        printf("%s\n", cJSON_Print(ap));
+    }
+    cJSON_AddItemToObject(json, "data", list);
+}
+
+void pkt_list_to_json(cJSON *json, struct cap_pkt_info *pkt_list, size_t count)
+{
+    char bssid[16];
+    if (!json)
+        return;
+
+    cJSON *list = cJSON_CreateArray();
+    for (size_t i = 0; i < count; i++) {
+        sprintf(bssid, MAC_FMT, MAC_BYTES(pkt_list[i].ap.bssid));
+        cJSON *pkt = cJSON_CreateObject();
+        cJSON *radio = cJSON_AddObjectToObject(pkt, "radio");
+        cJSON *ap = cJSON_AddObjectToObject(pkt, "ap");
+
+        cJSON_AddNumberToObject(radio, "channel_freq", pkt_list[i].radio.channel_freq);
+        cJSON_AddNumberToObject(radio, "antenna_signal", pkt_list[i].radio.antenna_signal);
+        cJSON_AddNumberToObject(radio, "noise", pkt_list[i].radio.noise);
+        
+        cJSON_AddNumberToObject(ap, "channel_freq", pkt_list[i].ap.channel);
+        cJSON_AddStringToObject(ap, "ssid", (char *)pkt_list[i].ap.ssid);
+        cJSON_AddStringToObject(ap, "bssid", bssid);
+
+        cJSON_AddItemToArray(list, pkt);
+    }
+    cJSON_AddItemToObject(json, "data", list);
+}
 static void _do_send()
 {
+    cJSON *json; 
+    cap_state_t next_state;
     cap_msg_t *msg = malloc(sizeof(cap_msg_t));
     msg->type = ctx->payload;
 
-    cap_state_t next_state;
+    json = cJSON_CreateObject();
+    cJSON_AddNumberToObject(json, "type", msg->type);
+
     switch (ctx->payload) {
         case AP_LIST:
             memcpy(msg->ap_list, ctx->ap_list, sizeof(msg->ap_list));
             msg->count = ctx->ap_count;
+            cJSON_AddNumberToObject(json, "count", msg->count);
+            ap_list_to_json(json, ctx->ap_list, ctx->ap_count);
             ctx->ap_count = 0;
             next_state = STATE_IDLE;
             break;
         case PKT_LIST:
             memcpy(msg->pkt_list, ctx->pkt_list, sizeof(msg->pkt_list));
             msg->count = ctx->pkt_count;
+              cJSON_AddNumberToObject(json, "count", msg->count);
+              pkt_list_to_json(json, ctx->pkt_list, ctx->pkt_count);
             ctx->pkt_count = 0;
             next_state = STATE_PKT_CAP;
             break;
@@ -430,10 +484,11 @@ static void _do_send()
     }
 
     if (ctx->send_cb) {
-        ctx->send_cb(msg);
+        ctx->send_cb(cJSON_Print(json));
         free(msg);
     }
 
+    cJSON_free(json);
     cap_next_state(next_state);
 }
 
