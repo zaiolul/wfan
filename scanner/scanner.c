@@ -91,7 +91,9 @@ void msg_send_cb(char *msg)
 void handle_cmd_all(char *cmd, void *data, unsigned int len)
 {
     cJSON *json;
-    struct wifi_ap_info *ap;
+    struct wifi_ap_info ap;
+    char bssid_str[32]; //big enough buffer
+    int channel;
 
     if (!strcmp(cmd, CMD_STOP)) {
         printf("GOT CMD STOP\n");
@@ -107,10 +109,14 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
             return;
         printf("DO AP SELECT\n");
         json = cJSON_Parse(data);
-        printf("json: %s\n", cJSON_Print(json));
-        // ap = (struct wifi_ap_info *)data;
-         
-        // cap_set_ap(ap);
+
+        strncpy(bssid_str, cJSON_GetObjectItem(json, "bssid")->valuestring,
+            sizeof(bssid_str));
+        strncpy((char *)ap.ssid, cJSON_GetObjectItem(json, "ssid")->valuestring,
+            sizeof(ap.ssid));
+        bssid_str_to_val(bssid_str, ap.bssid);
+        ap.channel = cJSON_GetObjectItem(json, "channel")->valueint;         
+        cap_set_ap(&ap);
     }
 }
 

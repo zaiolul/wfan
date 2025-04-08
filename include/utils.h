@@ -70,4 +70,6 @@ long long time_millis();
 long long time_elapsed_ms(long long start);
 int msleep(long msec);
 int bssid_equal(unsigned char *a, unsigned char *b);
+int bssid_str_to_val(char *str, unsigned char *bssid);
+
 #endif
