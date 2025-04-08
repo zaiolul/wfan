@@ -3,7 +3,7 @@ from collections import deque
 from threading import Timer
 import enum
 
-@dataclass 
+@dataclass(eq=True, frozen=True)
 class WifiAp:
     ssid : str
     bssid : str
@@ -30,6 +30,7 @@ class ScannerClient:
     ready : bool = False
     stats : ScannerStats = field(default_factory=ScannerStats)
     crash_timer : Timer = None
+    outfile : str = None
 
 class State(enum.Enum):
     SCANNING = 0
@@ -39,7 +40,7 @@ class State(enum.Enum):
 @dataclass
 class Manager:
     clients : dict[str, ScannerClient] = field(default_factory=dict)
-    common_aps : list[WifiAp] = field(default_factory=list)
+    ap_counters : dict[WifiAp, int] = field(default_factory=dict)
     selected_ap : WifiAp = None
     state: State = State.IDLE
 
