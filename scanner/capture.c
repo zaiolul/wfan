@@ -43,26 +43,44 @@ pcap_t *cap_pcap_setup(char *device)
     char filter_exp[] = "type mgt subtype beacon";
     bpf_u_int32 net;
 
-    handle = pcap_open_live(device, CAP_BUF_SIZE, 0, 50, err_msg);
+    // handle = pcap_open_live(device, CAP_BUF_SIZE, 0, 50, err_msg);
+    handle = pcap_create(device, err_msg);          
+    pcap_set_snaplen(handle, 65535);
+
     if (handle == NULL)
     {
         fprintf(stderr, "Failed to create handle: %s\n", err_msg);
         return NULL;
     }
 
+    pcap_set_timeout(handle, 10);
+
+    if (pcap_activate(handle)) {
+        fprintf(stderr, "Can't activate pcap handle, exit");
+        goto err;
+    }
+
+    if (pcap_setnonblock(handle, 1, err_msg)) {
+        fprintf(stderr, "Can't set pcap non-blocking, exit");
+        goto err;
+    }
+
     if (pcap_compile(handle, &filter, filter_exp, 0, net) == -1)
     {
         fprintf(stderr, "Could not parse filter: %s\n", pcap_geterr(handle));
-        return NULL;
+        goto err;
     }
 
     if (pcap_setfilter(handle, &filter) == -1)
     {
         fprintf(stderr, "Could not install filter: %s\n", pcap_geterr(handle));
-        return NULL;
+        goto err;
     }
 
     return handle;
+err:
+    pcap_close(handle);
+    return NULL;
 }
 
 void cap_pcap_close(pcap_t *handle)
@@ -258,7 +276,6 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     u_int8_t *frame;
     int radiotap_len;
 
-    printf("handle packet\n");
     if (ctx->state == STATE_PKT_CAP && !is_valid_mac(ctx->selected_ap.bssid))
         return;
 
@@ -376,6 +393,10 @@ static void _do_ap_search_start()
 
 static void _do_ap_search_loop()
 {
+    struct pcap_pkthdr *hdr;
+    const u_int8_t *pkt;
+    int ret;
+
     if (ctx->cap_scan_done) {
         if (ctx->ap_count > 0) {
             ctx->payload = AP_LIST;
@@ -391,14 +412,19 @@ static void _do_ap_search_loop()
         ctx->time = time_millis();
     }
 
-    pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
+    ret = pcap_next_ex(ctx->handle,&hdr, &pkt);
+    if (ret > 0)
+        cap_packet_handler(NULL, hdr, pkt);
+    else if (ret < 0)
+        fprintf(stderr, "Packet receive error\n");
+    //else timeout 
+
     cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 
 static void _do_pkt_cap()
 {
     if (ctx->pkt_count == PKT_MAX) {
-        printf("packet capture time %llu ms\n", time_elapsed_ms(ctx->time));
         ctx->time = time_millis();
         ctx->payload = PKT_LIST;
         cap_next_state(STATE_SEND);
@@ -537,7 +563,6 @@ int cap_start_capture(char *dev, cap_send_cb cb)
     while (ctx->state != STATE_END) {
         if (!handlers[ctx->state])
             continue;
-        printf("DO STATE: %s\n", cap_state_to_str(ctx->state));
         handlers[ctx->state]();
         ctx->override_state = 0;
     }
