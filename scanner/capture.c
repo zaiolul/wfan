@@ -258,6 +258,7 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     u_int8_t *frame;
     int radiotap_len;
 
+    printf("handle packet\n");
     if (ctx->state == STATE_PKT_CAP && !is_valid_mac(ctx->selected_ap.bssid))
         return;
 
@@ -536,7 +537,7 @@ int cap_start_capture(char *dev, cap_send_cb cb)
     while (ctx->state != STATE_END) {
         if (!handlers[ctx->state])
             continue;
-        printf("DO STATE: %s", cap_state_to_str(ctx->state));
+        printf("DO STATE: %s\n", cap_state_to_str(ctx->state));
         handlers[ctx->state]();
         ctx->override_state = 0;
     }
