@@ -5,3 +5,4 @@ wfan_scan
 manager/*.o
 wfan_mgr
 build/
+*__pycache__*
