@@ -22,7 +22,7 @@ struct cap_pkt_info {
 };
 
 #define AP_MAX 50
-#define PKT_MAX 50
+#define PKT_MAX 30
 
 typedef enum cap_send_payload_type {
     AP_LIST,

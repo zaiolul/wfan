@@ -75,7 +75,7 @@ int netlink_switch_chan(struct nl80211_data *nl, int chan)
     ret = nl_send_auto(nl->sock, msg);
 
     nlmsg_free(msg);
-    // msleep(10); // 10 ms wait
+    msleep(10); // 10 ms wait
     return 0;
 
 nla_put_failure:

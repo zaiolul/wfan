@@ -43,7 +43,7 @@ pcap_t *cap_pcap_setup(char *device)
     char filter_exp[] = "type mgt subtype beacon";
     bpf_u_int32 net;
 
-    handle = pcap_open_live(device, CAP_BUF_SIZE, 0, 120, err_msg);
+    handle = pcap_open_live(device, CAP_BUF_SIZE, 0, 50, err_msg);
     if (handle == NULL)
     {
         fprintf(stderr, "Failed to create handle: %s\n", err_msg);
@@ -353,7 +353,7 @@ static void cap_next_channel()
     }
     ctx->cap_channel++;
 
-    // netlink_switch_chan(&ctx->nl, ctx->cap_channel);
+    netlink_switch_chan(&ctx->nl, ctx->cap_channel);
 }
 
 static void _do_ap_search_start()
@@ -363,7 +363,7 @@ static void _do_ap_search_start()
 
     ctx->ap_count = 0;
     ctx->cap_band = BAND_24G;
-    ctx->cap_channel = 11;
+    ctx->cap_channel = 1;
     ctx->cap_scan_done = 0;
 
     netlink_switch_chan(&ctx->nl, ctx->cap_channel);
@@ -390,7 +390,7 @@ static void _do_ap_search_loop()
         ctx->time = time_millis();
     }
 
-    pcap_dispatch(ctx->handle, 3, cap_packet_handler, NULL);
+    pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
     cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 
@@ -536,6 +536,7 @@ int cap_start_capture(char *dev, cap_send_cb cb)
     while (ctx->state != STATE_END) {
         if (!handlers[ctx->state])
             continue;
+        printf("DO STATE: %s", cap_state_to_str(ctx->state));
         handlers[ctx->state]();
         ctx->override_state = 0;
     }
