@@ -17,9 +17,12 @@ class RadioInfo:
 
 @dataclass
 class ScannerStats:
-    average : int = 0
+    average : int = 0 #whole window
+    variance : int = 0 #whole window
     signal_buf : deque[int] = field(default_factory=deque)
+    variance_tmp_buf : deque[int] = field(default_factory=deque)
     variance_buf : deque[int] = field(default_factory=deque)
+    data_idx : deque[int] = field(default_factory=deque)
     done : int = 0
 
 @dataclass
@@ -28,6 +31,7 @@ class ScannerClient:
     ap_list : list[WifiAp] = field(default_factory=list)
     finished_scan : bool = False
     ready : bool = False
+    scanning : bool = False
     stats : ScannerStats = field(default_factory=ScannerStats)
     crash_timer : Timer = None
     outfile : str = None
@@ -37,13 +41,13 @@ class State(enum.Enum):
     SELECTING = 1
     IDLE = 2
 
-@dataclass
-class Manager:
-    clients : dict[str, ScannerClient] = field(default_factory=dict)
-    ap_counters : dict[WifiAp, int] = field(default_factory=dict)
-    selected_ap : WifiAp = None
-    state: State = State.IDLE
-
 class PayloadType(enum.Enum):
     AP_LIST = 0
     PKT_LIST = 1
+
+class ManagerEvent(enum.Enum):
+    SCAN_START = 0
+    AP_SELECT = 1
+    CLIENT_REGISTER = 2
+    CLIENT_UNREGISTER = 3
+    PKT_DATA_RECV = 4
