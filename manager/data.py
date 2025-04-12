@@ -22,7 +22,7 @@ class ScannerStats:
     signal_buf : deque[int] = field(default_factory=deque)
     variance_tmp_buf : deque[int] = field(default_factory=deque)
     variance_buf : deque[int] = field(default_factory=deque)
-    data_idx : deque[int] = field(default_factory=deque)
+    ts_buf : deque[int] = field(default_factory=deque)
     done : int = 0
 
 @dataclass

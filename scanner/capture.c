@@ -190,7 +190,7 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
     int offset = 0;
 
     memcpy(&cap_info->ap.timestamp, &fixed_params->timestamp, sizeof(u_int64_t));
-    
+
     if (ctx->cap_scan_done)
         return;
 
@@ -476,6 +476,8 @@ void pkt_list_to_json(cJSON *json, struct cap_pkt_info *pkt_list, size_t count)
         cJSON_AddNumberToObject(ap, "channel_freq", pkt_list[i].ap.channel);
         cJSON_AddStringToObject(ap, "ssid", (char *)pkt_list[i].ap.ssid);
         cJSON_AddStringToObject(ap, "bssid", bssid);
+        printf("ap timestamp: %llu\n", pkt_list[i].ap.timestamp);
+        cJSON_AddNumberToObject(ap, "timestamp", pkt_list[i].ap.timestamp);
 
         cJSON_AddItemToArray(list, pkt);
     }

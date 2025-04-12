@@ -84,6 +84,7 @@ class ScannerList:
         
         self.rssi_bufs : dict[str, list[int]] = dict()
         self.var_bufs : dict[str, list[int]] = dict()
+        self.ts_bufs : dict[str, list[int]] = dict()
         self.fig = go.Figure()
         self.fig.update_layout(
             margin=dict(l=10, r=5, t=10, b=10),
@@ -119,6 +120,7 @@ class ScannerList:
                 if id not in self.rssi_bufs.keys():
                     self.rssi_bufs[id] = deque(maxlen=500_000)
                     self.var_bufs[id] = deque(maxlen=500_000)
+                    self.ts_bufs[id] = deque(maxlen=500_000)
 
                 scanner = self.manager.scanners[id]
                 with ui.item(on_click=lambda: ui.notify(f"selected {id}")):
@@ -142,7 +144,8 @@ class ScannerList:
             self.cover.set_visibility(False)
             self.rssi_bufs[id].extend(list(scanner.stats.signal_buf))
             self.var_bufs[id].extend(list(scanner.stats.variance_buf))
-            scatter = self.fig.add_scatter(x=[i for i in range(0, len(self.var_bufs[id]))],
+            self.ts_bufs[id].extend(list(scanner.stats.ts_buf))
+            scatter = self.fig.add_scatter(x=list(self.ts_bufs[id]),
                                 y=list(self.var_bufs[id]) if self.data_type == 0 else list(self.rssi_bufs[id]))
             count = len(self.var_bufs[id])
 

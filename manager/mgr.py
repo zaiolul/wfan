@@ -68,8 +68,11 @@ class Manager:
         if not client.stats.done:
             for item in data:
                 radio_obj = item["radio"]
+                ap_obj = item["ap"]
                 radio = RadioInfo(radio_obj["channel_freq"], radio_obj["antenna_signal"], radio_obj["noise"])
+                print(ap_obj)
                 client.stats.signal_buf.append(radio.signal)
+                client.stats.ts_buf.append(ap_obj["timestamp"]) #dont need the object here tbh, might change for radio case as well
 
             if len(client.stats.signal_buf) == consts.PKT_STATS_BUF_SIZE:
                 client.stats.done = True
@@ -81,12 +84,14 @@ class Manager:
         for item in data:
             radio_obj = item["radio"]
             radio = RadioInfo(radio_obj["channel_freq"], radio_obj["antenna_signal"], radio_obj["noise"])
-            
+            ap_obj = item["ap"]
+
             val = radio.signal
             if self.is_outlier(client, radio.signal):
                 val = client.stats.average 
 
             client.stats.signal_buf.append(val)
+            client.stats.ts_buf.append(ap_obj["timestamp"])
 
             avg = np.average(client.stats.signal_buf)
             client.stats.average = avg
@@ -105,9 +110,7 @@ class Manager:
         data = json_data["data"]
 
         match PayloadType(json_data["type"]):
-            case PayloadType.AP_LIST:
-                self.ap_counters.clear()
-                
+            case PayloadType.AP_LIST:                
                 for item in data:
                     ap = WifiAp(item["ssid"], item["bssid"], item["channel"])
                     self.scanners[id].ap_list.append(ap)
@@ -115,12 +118,12 @@ class Manager:
                         self.ap_counters[ap] = 1
                     else:
                         self.ap_counters[ap] += 1
-
                 self.scanners[id].finished_scan = True
 
                 if all(c.finished_scan for c in self.scanners.values()):
                     print("All scanners finished scanning")
                     self.common_aps = [bssid for bssid, count in self.ap_counters.items() if count == len(self.scanners)]
+                    print(self.common_aps)
                     self.state = State.SELECTING
                     self.call_listeners(ManagerEvent.AP_SELECT)
 
@@ -165,6 +168,7 @@ class Manager:
                 self.scanners[id].stats.signal_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
                 self.scanners[id].stats.variance_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
                 self.scanners[id].stats.variance_tmp_buf = deque(maxlen=5)
+                self.scanners[id].stats.ts_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
 
                 self.client.mqtt_client.publish(topic_regack, None, 1)
                 self.can_scan = True
