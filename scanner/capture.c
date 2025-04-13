@@ -189,8 +189,6 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
     struct wifi_tag_param *tag;
     int offset = 0;
 
-    memcpy(&cap_info->ap.timestamp, &fixed_params->timestamp, sizeof(u_int64_t));
-
     if (ctx->cap_scan_done)
         return;
 
