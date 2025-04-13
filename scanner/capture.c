@@ -277,7 +277,7 @@ static void cap_packet_handler(unsigned char *args, const struct pcap_pkthdr *he
     struct cap_pkt_info cap_info = {0};
     u_int8_t *frame;
     int radiotap_len;
-
+    cap_info.ap.timestamp = time_millis();
     if (ctx->state == STATE_PKT_CAP && !is_valid_mac(ctx->selected_ap.bssid))
         return;
 
