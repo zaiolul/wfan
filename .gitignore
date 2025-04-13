@@ -1,5 +1,6 @@
 .vscode/
 common/*.o
+common/json/*.o
 scanner/*.o
 wfan_scan
 manager/*.o
