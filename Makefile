@@ -23,7 +23,7 @@ OBJS_COM += $(OBJS_JSON)
 LIBS_COM=-lmosquitto -lpthread
 LIBS_SCAN=$(LIBS_COM) -lpcap -lnl-3 -lnl-genl-3
 
-all: scanner manager
+all: scanner  #manager
 
 scanner: $(EXE_SCANNER)
 
