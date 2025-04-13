@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-from nicegui import ui, app
 import paho.mqtt.client as mqtt
 import threading
-import time
 import consts
 from data import *
-from queue import Queue, Empty
 import json
-import sys
-import io
 import os
-import matplotlib.pyplot as plt
 import numpy as np
 import asyncio
 import datetime
