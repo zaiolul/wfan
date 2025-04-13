@@ -425,7 +425,6 @@ static void _do_ap_search_loop()
 static void _do_pkt_cap()
 {
     if (ctx->pkt_count == PKT_MAX) {
-        ctx->time = time_millis();
         ctx->payload = PKT_LIST;
         cap_next_state(STATE_SEND);
         return;
@@ -474,7 +473,6 @@ void pkt_list_to_json(cJSON *json, struct cap_pkt_info *pkt_list, size_t count)
         cJSON_AddNumberToObject(ap, "channel_freq", pkt_list[i].ap.channel);
         cJSON_AddStringToObject(ap, "ssid", (char *)pkt_list[i].ap.ssid);
         cJSON_AddStringToObject(ap, "bssid", bssid);
-        printf("ap timestamp: %llu\n", pkt_list[i].ap.timestamp);
         cJSON_AddNumberToObject(ap, "timestamp", pkt_list[i].ap.timestamp);
 
         cJSON_AddItemToArray(list, pkt);
@@ -491,6 +489,7 @@ static void _do_send()
     json = cJSON_CreateObject();
     cJSON_AddNumberToObject(json, "type", msg->type);
 
+
     switch (ctx->payload) {
         case AP_LIST:
             memcpy(msg->ap_list, ctx->ap_list, sizeof(msg->ap_list));
@@ -501,10 +500,12 @@ static void _do_send()
             next_state = STATE_IDLE;
             break;
         case PKT_LIST:
+            printf("Packet scan time: %lld\n", time_elapsed_ms(ctx->time));
+            ctx->time = time_millis();
             memcpy(msg->pkt_list, ctx->pkt_list, sizeof(msg->pkt_list));
             msg->count = ctx->pkt_count;
-              cJSON_AddNumberToObject(json, "count", msg->count);
-              pkt_list_to_json(json, ctx->pkt_list, ctx->pkt_count);
+            cJSON_AddNumberToObject(json, "count", msg->count);
+            pkt_list_to_json(json, ctx->pkt_list, ctx->pkt_count);
             ctx->pkt_count = 0;
             next_state = STATE_PKT_CAP;
             break;
