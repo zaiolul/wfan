@@ -48,3 +48,7 @@ SCANNER_PING_RESP = "pong"
 
 # Scanner
 SCAN_CRASH_WAIT = 60
+
+# Graph
+
+X_AXIS_SPAN = 100

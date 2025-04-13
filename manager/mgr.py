@@ -13,6 +13,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import asyncio
+import datetime
 
 class MqttClient:
     def __init__(self):
@@ -41,9 +42,6 @@ class MqttClient:
         
         client.connect("localhost", 1883, 60)
         return client
-
-    async def mqtt_send(self, topic: str, payload: str = None, qos : int = 1):
-        self.mqtt_client.publish(topic=topic, payload=payload, qos=qos, retain=False)
 
 class Manager:
     def __init__(self, client : MqttClient):
@@ -91,8 +89,7 @@ class Manager:
                 val = client.stats.average 
 
             client.stats.signal_buf.append(val)
-            client.stats.ts_buf.append(ap_obj["timestamp"])
-
+            client.stats.ts_buf.append(datetime.datetime.fromtimestamp(int(ap_obj["timestamp"]) / 1000))
             avg = np.average(client.stats.signal_buf)
             client.stats.average = avg
 
@@ -131,7 +128,7 @@ class Manager:
                 self.scanners[id].scanning = True
                 await self.update_scanner_stats(self.scanners[id], data)
                 if self.scanners[id].stats.done:
-                    self.call_listeners(ManagerEvent.PKT_DATA_RECV)
+                    self.call_listeners(ManagerEvent.PKT_DATA_RECV, id)
 
     def handle_client_crash(self, id: str):
         self.scanners.pop(id)
@@ -202,6 +199,7 @@ class Manager:
             if self.state == State.SELECTING:
                 return True
             await asyncio.sleep(0.5)
+
     async def common_aps_done(self, timeout: int = 10):
         try:
             await asyncio.wait_for(self._common_aps_done(), timeout=timeout)
@@ -218,11 +216,18 @@ class Manager:
             self.listeners[event] = []
         self.listeners[event].append(callback)
     
-    def call_listeners(self, event: ManagerEvent):
+    def call_listeners(self, event: ManagerEvent, args = None):
         if event not in self.listeners:
             return
         for callback in self.listeners[event]:
-            asyncio.get_event_loop().call_soon_threadsafe(callback)
+            asyncio.get_event_loop().call_soon_threadsafe(callback, args)
+
+    async def mqtt_send(self, topic: str, payload: str = None, qos : int = 1):
+        #clean up for upcoming states
+        self.common_aps.clear()
+        self.ap_counters.clear()
+
+        self.client.mqtt_client.publish(topic=topic, payload=payload, qos=qos, retain=False)
 
 class Scanners:
     def __init__(self):
