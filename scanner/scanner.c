@@ -90,10 +90,15 @@ void msg_send_cb(char *msg)
 
 void handle_cmd_all(char *cmd, void *data, unsigned int len)
 {
-    cJSON *json;
+    cJSON *json = NULL;
+    cJSON *arr = NULL;
+    cJSON *obj = NULL;
     struct wifi_ap_info ap;
     char bssid_str[32]; //big enough buffer
     int channel;
+
+    int chans[128];
+    int chan_count = 0;
 
     if (!strcmp(cmd, CMD_STOP)) {
         printf("GOT CMD STOP\n");
@@ -103,7 +108,18 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
         if (!ctx->registered)
             return;
         printf("DO SCAN\n");
+        json = cJSON_Parse(data);
+        arr = cJSON_GetObjectItem(json, "channels");
+
+        cJSON_ArrayForEach(obj, arr) {
+            printf("receive chan: %d\n", obj->valueint);
+            if (obj->valueint > 0 && obj->valueint < 14)
+                chans[chan_count ++] = obj->valueint;
+        }
+
+        cap_set_chans(chans, chan_count);
         cap_override_state(STATE_AP_SEARCH_START);
+
     } else if (!strcmp(cmd, CMD_SELECT_AP)) {
         if (!ctx->registered)
             return;
@@ -118,6 +134,7 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
         ap.channel = cJSON_GetObjectItem(json, "channel")->valueint;         
         cap_set_ap(&ap);
     }
+    cJSON_free(json);
 }
 
 void handle_cmd_id(char *cmd, void *data, unsigned int len)

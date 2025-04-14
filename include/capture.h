@@ -149,7 +149,9 @@ struct capture_ctx {
 
     timer_t timerid;
     int cap_band;
-    int cap_channel;
+    int cap_channel_list[128]; 
+    int cap_channel_list_n;
+    int cap_channel_idx;
     int cap_scan_done;
     struct nl80211_data nl;
 };
@@ -166,4 +168,5 @@ struct capture_ctx {
 int cap_start_capture(char *dev, cap_send_cb cb);
 void cap_override_state(cap_state_t state);
 void cap_set_ap(struct wifi_ap_info *ap);
+void cap_set_chans(int *chans, int n);
 #endif

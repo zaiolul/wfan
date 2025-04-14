@@ -348,43 +348,24 @@ static void _do_idle()
 
 static void cap_next_channel()
 {
-    switch (ctx->cap_band) {
-    case BAND_24G:
-        if (ctx->cap_channel < 1 && ctx->cap_channel > 14)
-            return;
-        else if (ctx->cap_channel >= 13) {
-            printf("Scan done\n");
-            ctx->cap_scan_done = 1;
-            return;
-        }
-        break;
-    case BAND_5G:
-        if (ctx->cap_channel < 36 && ctx->cap_channel > 165)
-            return;
-        else if (ctx->cap_channel >= 165) {
-            ctx->cap_scan_done = 1;
-            return;
-        }
-        break;
-    default:
+    if (ctx->cap_channel_idx < 0 || ctx->cap_channel_idx >= ctx->cap_channel_list_n - 1) {
+        ctx->cap_scan_done = 1;
         return;
     }
-    ctx->cap_channel++;
 
-    netlink_switch_chan(&ctx->nl, ctx->cap_channel);
+    netlink_switch_chan(&ctx->nl, ctx->cap_channel_list[++ ctx->cap_channel_idx]);
 }
 
 static void _do_ap_search_start()
 {
     memset(ctx->ap_list, 0, sizeof(struct wifi_ap_info) * AP_MAX);
     memset(&(ctx->selected_ap), 0, sizeof(struct wifi_ap_info));
-
+    
     ctx->ap_count = 0;
     ctx->cap_band = BAND_24G;
-    ctx->cap_channel = 1;
+    ctx->cap_channel_idx = 0;
     ctx->cap_scan_done = 0;
-
-    netlink_switch_chan(&ctx->nl, ctx->cap_channel);
+    netlink_switch_chan(&ctx->nl, ctx->cap_channel_list[0]);
 
     cap_next_state(STATE_AP_SEARCH_LOOP);
 
@@ -527,6 +508,21 @@ static int freq_to_chan(int freq)
     if (freq < 2400 || freq > 2500)
         return -1;
     return (freq - 2407) / 5;
+}
+void cap_set_chans(int *chans, int n)
+{
+    if (!ctx)
+        return;
+
+    if (n == 0) {
+        for (int i = 1 ; i <= 13; i ++)
+            ctx->cap_channel_list[i] = i;
+        ctx->cap_channel_list_n = 13;
+    } else {
+        for (int i = 0 ; i <= n; i ++)
+            ctx->cap_channel_list[i] = chans[i];
+        ctx->cap_channel_list_n = n;
+    }
 }
 
 void cap_set_ap(struct wifi_ap_info *ap)
