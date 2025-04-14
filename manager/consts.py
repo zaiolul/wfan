@@ -52,3 +52,7 @@ SCAN_CRASH_WAIT = 60
 # Graph
 
 X_AXIS_SPAN = 100
+
+#Other
+
+SETTINGS_FILE = "./settings.txt"

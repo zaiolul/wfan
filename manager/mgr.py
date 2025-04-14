@@ -171,8 +171,9 @@ class Manager:
                     return
                 scanner = self.scanners[id]
                 self.scanners[id].scanning = False
-                scanner.crash_timer = threading.Timer(consts.SCAN_CRASH_WAIT, lambda: self.handle_client_crash(id))
-                scanner.crash_timer.start()
+                #TODO fix, asyncio task?
+                # scanner.crash_timer = threading.Timer(consts.SCAN_CRASH_WAIT, lambda: self.handle_client_crash(id))
+                # scanner.crash_timer.start()
 
     async def message_handler(self, topic: str, payload: str):
         topic_parts = topic.split("/")

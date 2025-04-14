@@ -9,21 +9,65 @@ import plotly.colors as plot_cl
 from mgr import Manager, MqttClient
 import consts
 import json
+from file_picker import local_file_picker
+import os
+from typing import Callable, Awaitable
+
+class ScannerSettings:
+    def __init__(self, band, path):
+        self.chans_24 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        self.chans_5 = [36, 40, 44, 48]
+        self.selected_chans : list[int] = self.chans_24
+        self.selected_dir : str = path
+        self.selected_band : int = band
+
+    def import_options(self):
+            band = None
+            chans = []
+            results_dir = None
+            with open(consts.SETTINGS_FILE, "r") as f:
+                for line in f:
+                    parts = line.split("=")
+                    if len(parts) != 2:
+                        continue
+                    try:
+                        match parts[0]:
+                            case "band":
+                                band = int(parts[1])
+                            case "chans": #TODO actually validate range, now possible to pass illegal val
+                                for chan in parts[1].split(","):
+                                    chans.append(int(chan))
+                            case "results_dir":
+                                results_dir = parts[1]
+                    except:
+                        print("Invalid settings config, use defaults")
+                        return
+            self.selected_dir = results_dir
+            self.selected_chans = chans
+            self.selected_band = band
+
+    async def save_options(self):
+        chans = [str(c) for c in self.selected_chans]
+        with open(consts.SETTINGS_FILE, "w") as f:
+            f.write(f"band={self.selected_band}\n")
+            f.write(f"chans={",".join(chans)}\n")
+            f.write(f"results_dir={self.selected_dir}\n")
+        ui.notify("Settings saved.")
 
 class ScannerDialog:
-    def __init__(self, manager: Manager):
-        self.dialog = None
+    def __init__(self, manager: Manager, settings : ScannerSettings, on_select_ap : Callable[[], Awaitable[None]]):
         self.manager = manager 
         self.manager.register_listener(ManagerEvent.AP_SELECT, self.get_data)
-
-    def display_dialog(self):
-        self.dialog = ui.dialog().classes("w-full")
-        self.dialog.on("hide", self.manager.reset_scan_state)
+        self.settings = settings
+        self.select_ap = on_select_ap
+        self.dialog = None
 
     async def start_scan(self):
+        self.dialog = ui.dialog().classes("w-full")
+        self.dialog.on("hide", self.manager.reset_scan_state)
         self.dialog.clear()
         self.manager.state = State.IDLE
-        await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SCAN, "a")
+        await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SCAN, json.dumps({"channels" : self.settings.selected_chans}))
         with  self.dialog, ui.card().classes("w-1/2 items-center").props("flat"):
             spinner = ui.spinner(size="lg")
         
@@ -32,12 +76,10 @@ class ScannerDialog:
         await self.manager.common_aps_done()
         spinner.visible = False
 
-    async def select_ap(self, e : events.GenericEventArguments):
-        ap = e.args
-        await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(ap))  
-        self.dialog.close()
-
     def get_data(self, args = None):
+        if not self.dialog:
+            return # ??????
+        
         self.dialog.clear()  
         with self.dialog, ui.card().classes("w-full").props("flat bordered"):
             with ui.column():
@@ -73,19 +115,22 @@ class ScannerDialog:
                     </q-tr>
                 ''')
                 table.on("select_ap", self.select_ap)
+                ui.on("select_ap", lambda: print("GOT AP EVNT"))
         self.dialog.open()
     
     def show_dialog(self):
         self.dialog = ui.dialog()
 
+
 class ScannerList:
-    def __init__(self, manager: Manager, dark):
+    def __init__(self, manager: Manager, settings : ScannerSettings, dark):
         self.manager = manager 
         self.manager.register_listener(ManagerEvent.CLIENT_REGISTER, self.update_scanners)
         self.manager.register_listener(ManagerEvent.CLIENT_UNREGISTER, self.update_scanners)
         # self.manager.register_listener(ManagerEvent.PKT_DATA_RECV, self.update_scanners)
         self.manager.register_listener(ManagerEvent.PKT_DATA_RECV, self.update_plot_data)
         
+        self.dialog = ScannerDialog(self.manager, settings, self.select_ap)
         self.rssi_bufs : dict[str, list[int]] = dict()
         self.var_bufs : dict[str, list[int]] = dict()
         self.ts_bufs : dict[str, list[int]] = dict()
@@ -110,6 +155,7 @@ class ScannerList:
         self.saved_layout : go.Layout = None
         self.scanner_states : dict[str, bool] = dict()
         self.scanner_colors : dict[str, str] = dict()
+        self.cover_visibility = True
 
     def display_list(self):
         self.scanner_list = ui.list().classes("overflow-y-auto").props("separator")
@@ -118,12 +164,13 @@ class ScannerList:
     def display_plot(self):
         self.plot = ui.plotly(self.fig).classes("w-full h-full")
         self.plot.on("plotly_relayout", self.on_relayout)
-        #hack for options, no way to do it with nicegui
-        self.plot._props["options"]["config"] = {"modeBarButtonsToRemove": ["zoomIn", "zoomOut", "select", "lasso", "autoscale", "pan", "toImage", "resetScale", "zoom"],
+        #hack for options, no way to do it with nicegui class wrapper unfortunately :/
+        self.plot._props["options"]["config"] = {"modeBarButtonsToRemove": ["select", "lasso", "autoscale", "pan", "toImage", "resetScale", "zoom"],
                                                  "doubleClick" : False,
                                                  "scrollZoom" : True}
         
         self.cover = ui.card().classes("items-center justify-center absolute inset-0 z-10 opacity-85").props("flat")
+        self.cover.bind_visibility(self, "cover_visibility")
         with self.cover:
              ui.label("Waiting for client data....").classes("black text-2xl")
 
@@ -132,7 +179,7 @@ class ScannerList:
             self.scanner_list.clear()
             if (len(self.manager.scanners.keys()) == 0):
                 ui.label("No clients registered.")
-            # intersect = self.rssi_bufs.keys() & self.manager.scanners.keys()
+
             for i, id in enumerate(self.manager.scanners):
                 if id not in self.rssi_bufs.keys():
                     self.rssi_bufs[id] = deque(maxlen=500_000)
@@ -174,7 +221,6 @@ class ScannerList:
             self.scanner_states[id] = True
 
         scanner = self.manager.scanners[id]
-        lents = len(self.ts_bufs[id])
         self.rssi_bufs[id].extend(list(scanner.stats.signal_buf))
         self.var_bufs[id].extend(list(scanner.stats.variance_buf))
         self.ts_bufs[id].extend(list(scanner.stats.ts_buf))
@@ -195,17 +241,19 @@ class ScannerList:
             scatter = self.fig.add_scatter(x=list(self.ts_bufs[id]),
                                 y=list(self.var_bufs[id]) if self.data_type == 0 else list(self.rssi_bufs[id]),
                                  marker=dict(color=self.scanner_colors[id]))
-
         if len(items) > 0 and not self.saved_layout:
             xaxis = list(self.ts_bufs.values())[0]
             if len(xaxis) > consts.X_AXIS_SPAN:
                 self.fig.update_xaxes(range = [xaxis[-consts.X_AXIS_SPAN], xaxis[-1]])
         else:
             self.fig.layout = self.saved_layout
+        
+        self.cover_visibility = False
         self.plot.update()
     
     def change_plot_type(self, data_type : int):
         self.data_type = data_type
+        self.saved_layout = None
         match data_type:
             case 0:
                 self.fig.update_yaxes(range = [0, 200])
@@ -223,37 +271,33 @@ class ScannerList:
                 self.fig.update_yaxes(range = [e.args["yaxis.range[0]"], e.args["yaxis.range[1]"]])
             self.saved_layout = self.fig.layout
 
-        # elif "xaxis.autorange" in e.args:
-        #     self.saved_layout = None
-            # items = self.manager.scanners.items()
-            # if len(items) > 0:
-            #     xaxis = list(self.ts_bufs.values())[0]
-            #     if len(xaxis) > consts.X_AXIS_SPAN:
-            #         print(f"SET X {xaxis[-consts.X_AXIS_SPAN]} - {xaxis[-1]}")
-            #         self.fig.update_xaxes(range = [xaxis[-consts.X_AXIS_SPAN], xaxis[-1]])
-            #     else:
-            #         print(f"SET X AUTO")
-            #         self.fig.update_xaxes(autorange = True)
-        # self.plot.update()
-
     def reset_axes(self):
         self.saved_layout = None
         self.change_plot_type(self.data_type)
-    
+
+    async def select_ap(self, e : events.GenericEventArguments):
+        ap = e.args
+        self.reset_data()
+        self.cover_visibility = True
+        await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(ap))  
+        self.dialog.dialog.close()
+
     def reset_data(self):
-        self.rssi_bufs.clear()
-        self.var_bufs.clear()
-        self.ts_bufs.clear()
-        self.scanner_states.clear()
+        for id in self.rssi_bufs.keys():
+            self.rssi_bufs[id] = deque(maxlen=500_000)
+            self.var_bufs[id] = deque(maxlen=500_000)
+            self.ts_bufs[id] = deque(maxlen=500_000)
+            self.scanner_states[id] = True
+        self.reset_axes()
 class GraphTab:
-    def __init__(self, manager : Manager, dark):
+    def __init__(self, manager : Manager, settings: ScannerSettings, dark):
         self.manager = manager
-        self.dialog = ScannerDialog(self.manager)
-        self.scanners = ScannerList(self.manager, dark)
+        
+        self.scanners = ScannerList(manager, settings, dark)
 
     def tab(self):
         # with ui.column().classes("w-full h-[calc(100vh-2rem)] grid grid-flow-row columns-2") as col:
-        self.dialog.display_dialog()
+
             # with ui.row(align_items="center").classes("w-[95%] h-full fixed-center justify-center flex-wrap w-full gap-4 p-4"):
         with ui.card().tight().classes("w-full h-full col-span-6 md:col-span-5 row-span-2 md:row-span-1 relative").props("flat bordered") as graph_card:
             self.scanners.display_plot()
@@ -261,28 +305,96 @@ class GraphTab:
                 ui.toggle({0 : "Variance", 1 : "RSSI"}, value = 0, on_change=self.change_plot).set_value(self.scanners.data_type)
                 ui.button("Reset axes").on_click(self.scanners.reset_axes)
         with ui.card().classes("w-full h-full col-span-6 md:col-span-1 row-span-1 md:row-span-1 flat bordered").props("flat bordered") as scan_card:
-            ui.button("AP Scan", on_click= lambda: self.dialog.start_scan()).bind_enabled_from(self.manager, "can_scan")
+            ui.button("AP Scan", on_click= lambda: self.scanners.dialog.start_scan()).bind_enabled_from(self.manager, "can_scan")
             self.scanners.display_list()
 
 
     def change_plot(self, args : ValueChangeEventArguments):
         self.scanners.change_plot_type(args.value)
-           
 
 class SettingsTab:
-    def __init__(self, manager : Manager):
+    def __init__(self, manager : Manager, settings : ScannerSettings):
         self.manager = manager
+        self.settings = settings
+        self.selected_opts = settings.chans_24
+
+        self.el_select : ui.select = None
+        self.el_toggle : ui.toggle = None
+        self.selected_dir : str = ""
+        self.dir_label : ui.label = None
+        
+        if os.path.exists(consts.SETTINGS_FILE):
+            settings.import_options()
 
     def tab(self):
-        ui.label("setting tab")
+        self.settings.import_options() #HACK, ADD ADDITIONAL CHECKS TO NOT OVERRIDE LOCAL
+        with ui.card().classes("w-full items-center md:items-start md:w-1/3 col-span-6 row-span-3 ").props("flat bordered dense"):
+            
+            with ui.row().classes("w-full justify-between"):
+                ui.label("Scanner settings").classes("text-3xl")
+                ui.button("Save", on_click=self.settings.save_options)
+            ui.separator()
+            with ui.row().classes("w-full"):
+                with ui.column().classes("w-full md:w-1/2 shrink-0"):
+                    with ui.column().classes("justify-center items-center"):
+                        #Ignore any other options for now,
+                        #TODO 5GHz (maybe)
+                        self.el_toggle = ui.toggle({0: "2.4 GHz", 1 : "5 GHz"}, value=self.settings.selected_band, on_change=self.update_band).tooltip("Scanned bandwidth")
+                        with self.el_toggle:
+                            ui.tooltip("Wi-Fi radio bandwidth for scanning.").classes("text-lg")
+                   
+                    with ui.column().classes("w-full"):
+                        self.el_select = ui.select(self.selected_opts, validation= {"At least one channel required" : self.validate_select},
+                            multiple=True, value=self.settings.selected_chans, label="Channels", 
+                            on_change=self.update_selected_chans).classes("w-full").props("stack-label use-chips").without_auto_validation()
+                        with self.el_select:
+                            ui.tooltip("Channel list, that will be passed to scanners to search for APs.").classes("text-lg")
 
+                with ui.column().classes("w-full md:w-1/3"):
+                    ui.button("Set file path", on_click=self.select_file_path, icon="folder")
+                    self.dir_label = ui.label()
+                    ui.label
+                    self.dir_label.set_text("Path not selected" if len(self.settings.selected_dir) == 0 else self.settings.selected_dir)
+               
+    async def select_file_path(self):
+        dirs = await local_file_picker('~')
+        print(dirs)
+        self.settings.selected_dir = dirs[0]
+        self.dir_label.set_text(self.selected_dir)
+
+    def validate_select(self, val):
+        print("validate")
+        return len(val) > 0
+    
+    def update_selected_chans(self, e : ValueChangeEventArguments):
+        print("update")
+        vals = e.value
+        self.el_select.validate()
+        if len(vals) == 0:
+            vals.append(self.settings.selected_chans[-1])
+        vals.sort()
+        self.el_select.value = vals
+        self.settings.selected_chans = vals
+        self.el_select.update()
+       
+    def update_band(self, e : ValueChangeEventArguments):
+        self.settings.selected_band = e.value
+        match e.value:
+            case 0:
+                self.el_select.set_options(self.chans_24, value=self.chans_24)
+                self.selected_opts = self.chans_24
+            case 1:
+                self.el_select.set_options(self.chans_5, value=self.chans_5)
+                self.selected_opts = self.chans_5
+        self.el_select.update()
 
 def create_ui(manager: Manager, mqtt_client : MqttClient):
     @ui.page("/")
     def MainPage():
+        settings = ScannerSettings(0, "")
         dark = ui.dark_mode(True)
-        graph_tab = GraphTab(manager, dark)
-        settings_tab = SettingsTab(manager)
+        graph_tab = GraphTab(manager, settings, dark)
+        settings_tab = SettingsTab(manager, settings)
         main = None
         
         def graph():
@@ -295,12 +407,6 @@ def create_ui(manager: Manager, mqtt_client : MqttClient):
             with main:
                 settings_tab.tab()
 
-        # with ui.row().classes("w-full grid grid-cols-6 bg-primary"):
-        #     ui.label("RSSI analyzer").classes("col-span-6 md:col-span-2 text-3xl")
-        #     ui.button("Graph").on_click(graph).classes("col-span-2 md:col-span-2")
-        #     ui.button("Settings").on_click(settings).classes("col-span-2 md:col-span-2")
-        #     dark = ui.dark_mode(True)
-            # ui.switch("Dark mode").bind_value(dark).classes("col-span-2 md:col-span-1")
         with ui.header().classes("h-[64px] justify-between bg-primary"):
             ui.label("RSSI analyzer").classes("text-3xl")
             ui.space()
@@ -310,7 +416,7 @@ def create_ui(manager: Manager, mqtt_client : MqttClient):
             ui.switch("Dark mode").props('keep-color').bind_value(dark)
 
         with ui.element().classes('flex flex-col h-[calc(100vh-128px)] w-full'):
-            main = ui.row().classes("flex-grow grid grid-cols-6 md:grid-rows-1 grid-rows-3 ")
+            main = ui.row().classes("flex-grow grid grid-cols-6 md:grid-rows-1 grid-rows-3 justify-items-center")
 
         ui.colors(primary="#6E93D6", secondary="#53B689", accent="#111B1E", positive="#53B689", dark="#121212")
         ui.add_css('''
