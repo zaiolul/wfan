@@ -23,35 +23,47 @@ class ScannerSettings:
 
     def import_options(self):
             band = None
-            chans = []
+            chans = None
             results_dir = None
-            with open(consts.SETTINGS_FILE, "r") as f:
-                for line in f:
-                    parts = line.split("=")
-                    if len(parts) != 2:
-                        continue
-                    try:
-                        match parts[0]:
-                            case "band":
-                                band = int(parts[1])
-                            case "chans": #TODO actually validate range, now possible to pass illegal val
-                                for chan in parts[1].split(","):
-                                    chans.append(int(chan))
-                            case "results_dir":
-                                results_dir = parts[1]
-                    except:
-                        print("Invalid settings config, use defaults")
-                        return
-            self.selected_dir = results_dir
-            self.selected_chans = chans
-            self.selected_band = band
+            f = None
+            try:
+                f = open(consts.SETTINGS_FILE, "r")
+            except:
+                print("Settings file does not exist")
+                return
+
+            for line in f:
+                parts = line.split("=")
+                if len(parts) != 2:
+                    continue
+                try:
+                    match parts[0]:
+                        case "band":
+                            band = int(parts[1])
+                        case "chans": #TODO actually validate range, now possible to pass illegal val
+                            chans = []
+                            for chan in parts[1].split(","):
+                                chans.append(int(chan))
+                        case "results_dir":
+                            results_dir = parts[1]
+                except:
+                    print("Invalid settings config, use defaults")
+                    return
+            
+            if chans:
+                self.selected_chans = chans
+            if results_dir:
+                self.selected_dir = results_dir
+            if band:
+                self.selected_band = band
 
     async def save_options(self):
         chans = [str(c) for c in self.selected_chans]
         with open(consts.SETTINGS_FILE, "w") as f:
             f.write(f"band={self.selected_band}\n")
             f.write(f"chans={",".join(chans)}\n")
-            f.write(f"results_dir={self.selected_dir}\n")
+            if self.selected_dir:
+                f.write(f"results_dir={self.selected_dir}\n")
         ui.notify("Settings saved.")
 
 class ScannerDialog:
@@ -340,6 +352,7 @@ class SettingsTab:
                         #Ignore any other options for now,
                         #TODO 5GHz (maybe)
                         self.el_toggle = ui.toggle({0: "2.4 GHz", 1 : "5 GHz"}, value=self.settings.selected_band, on_change=self.update_band).tooltip("Scanned bandwidth")
+                        self.el_toggle.disable()
                         with self.el_toggle:
                             ui.tooltip("Wi-Fi radio bandwidth for scanning.").classes("text-lg")
                    
@@ -381,11 +394,11 @@ class SettingsTab:
         self.settings.selected_band = e.value
         match e.value:
             case 0:
-                self.el_select.set_options(self.chans_24, value=self.chans_24)
-                self.selected_opts = self.chans_24
+                self.el_select.set_options(self.settings.chans_24, value=self.settings.chans_24)
+                self.selected_opts = self.settings.chans_24
             case 1:
-                self.el_select.set_options(self.chans_5, value=self.chans_5)
-                self.selected_opts = self.chans_5
+                self.el_select.set_options(self.settings.chans_5, value=self.settings.chans_5)
+                self.selected_opts = self.settings.chans_5
         self.el_select.update()
 
 def create_ui(manager: Manager, mqtt_client : MqttClient):
