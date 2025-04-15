@@ -14,6 +14,7 @@
 
 struct scanner_client_ctx{
     char *dev;
+    char *mqtt_conf_path;
     int chanlist[14];
     int n_chans;
     char *client_id;

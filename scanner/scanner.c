@@ -10,7 +10,6 @@ struct threads_shared shared = {0};
 
 void sig_handler(int signal) 
 {   
-    pthread_mutex_lock(&shared.lock);
     switch (signal) {
         case SIGINT:
             shared.stop = 1;
@@ -18,26 +17,11 @@ void sig_handler(int signal)
         default:
             break;
     }
-    pthread_mutex_unlock(&shared.lock);
-}
-
-void parse_chanlist(char *chanlist) {
-    char *chanlist_copy = strdup(chanlist);
-    printf("test");
-    wfs_debug("Chanlist: %s\n", chanlist_copy);
-    char *token = strtok(chanlist_copy, ",");
-    int i = 0;
-    while (token != NULL) {
-        ctx->chanlist[i++] = atoi(token);
-        token = strtok(NULL, ",");
-    }
-    ctx->n_chans = i;
-    free(chanlist_copy);
 }
 
 void parse_args(int argc, char *argv[])
 {
-    char *prog_opts = "d:v:c:";
+    char *prog_opts = "d:v:p:";
     int opt;
 
     while ((opt = getopt(argc, argv, prog_opts)) != -1) {
@@ -48,8 +32,8 @@ void parse_args(int argc, char *argv[])
                 break;
             case 'v':
                 break;
-            case 'c':
-                parse_chanlist(optarg);
+            case 'p':
+                ctx->mqtt_conf_path = strdup(optarg);
                 break;
             default:
                 printf("Usage: %s [-d device] [-v]\n", argv[0]);
@@ -58,17 +42,12 @@ void parse_args(int argc, char *argv[])
     }
     
     if (!ctx->dev) {
-        printf("Usage: %s [-d device] [-v] -c CHANNEL1,CHANNEL2...\n", argv[0]);
+        printf("Usage: %s -d device [-v] [-p MQTT_USER_CONF]\n", argv[0]);
         exit(EXIT_FAILURE);
     }
-
-    //kazkoks default tokiu atveju
-    if(ctx->n_chans == 0) {
-        ctx->chanlist[0] = 1;
-        ctx->n_chans = 1;
+    if (!ctx->mqtt_conf_path) {
+        ctx->mqtt_conf_path = MQTT_CONFIG_FILE;
     }
-
-    wfs_debug("Channels: %d\n", ctx->n_chans);
 }
 
 //send json formatted string
@@ -230,15 +209,19 @@ int main(int argc, char *argv[])
     
     parse_args(argc, argv);
 
-    ctx->client_id = get_client_id(ctx->dev);
-
-    prepare_topics(ctx->client_id, ctx->sub_topics);
-
-    sprintf(will.name, "%s/%s", SCANNER_PUB_CMD_CRASH, ctx->client_id);
-
-    if ((ret = mqtt_setup(ctx->sub_topics, will,&msg_recv_cb)))
+    if ((ret = mqtt_setup(ctx->mqtt_conf_path,&msg_recv_cb)))
         goto mqtt_err;
 
+    ctx->client_id = mqtt_get_user();
+    prepare_topics(ctx->client_id, ctx->sub_topics);
+    
+    mqtt_set_sub_topics(ctx->sub_topics);
+
+    sprintf(will.name, "%s/%s", SCANNER_PUB_CMD_CRASH, ctx->client_id);
+    
+    if ((ret = mqtt_set_will(will)))
+        goto mqtt_err;
+    
     pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
 
     while (1) {
