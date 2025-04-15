@@ -4,6 +4,7 @@ PKT_STATS_BUF_SIZE = 30
 OUTPUT_DIR = "./scan_results"
 RES_FILE_EXT = ".csv"
 
+MQTT_CONF = "./manager_mqtt.conf"
 #direct copy of topics.h
 #TOPICS
 

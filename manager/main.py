@@ -152,10 +152,11 @@ class ScannerList:
             margin=dict(l=0, r=0, t=0, b=0),
             xaxis={"tickmode": "linear",
                    "dtick": 1000}, # 1s
-            showlegend=False
+            showlegend=False,
+            xaxis_title=dict(text="Time")
         )
 
-        self.fig.update_yaxes(range = [0, 200])
+        self.fig.update_yaxes(range = [0, 200], visible=False)
         
         self.plot = None
         self.cover = None
@@ -170,7 +171,7 @@ class ScannerList:
         self.cover_visibility = True
 
     def display_list(self):
-        self.scanner_list = ui.list().classes("overflow-y-auto").props("separator")
+        self.scanner_list = ui.list().classes("w-full overflow-y-auto").props("separator")
         self.update_scanners()
 
     def display_plot(self):
@@ -268,10 +269,11 @@ class ScannerList:
         self.saved_layout = None
         match data_type:
             case 0:
-                self.fig.update_yaxes(range = [0, 200])
+                self.fig.update_yaxes(range = [0, 200], visible=False, title=None)
                 # self.saved_layout = self.fig.layout
             case 1:
-                self.fig.update_yaxes(range = [-100, 0])
+                self.fig.update_yaxes(range = [-100, 0], visible=True,  title=dict(text="RSSI"))
+    
                 # self.saved_layout = self.fig.layout
         self.update_plot()
     

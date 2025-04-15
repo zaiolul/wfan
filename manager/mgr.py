@@ -10,11 +10,11 @@ import asyncio
 import datetime
 
 class MqttClient:
-    def __init__(self):
+    def __init__(self, config : str = consts.MQTT_CONF):
         self.queue = asyncio.Queue()
-        self.mqtt_client = self._setup_mqtt_client()
+        self.mqtt_client = self._setup_mqtt_client(config)
         self._event_loop = asyncio.get_event_loop()
-        self.mqtt_client.loop_start()
+        self.mqtt_client.loop_start() 
 
     def _on_connect(self, client : mqtt.Client, userdata, flags : any, rc: int, properties : any = None):
         print("Connected with result code " + str(rc))
@@ -28,14 +28,39 @@ class MqttClient:
         asyncio.run_coroutine_threadsafe(
             self.queue.put(item=(msg.topic, msg.payload)), self._event_loop)
 
-    def _setup_mqtt_client(self) -> mqtt.Client:
+    def _setup_mqtt_client(self, config : str) -> mqtt.Client:
+        conf = self._parse_mqtt_conf(config)
+        if not conf:
+            exit(1)
+        
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         client.will_set("cmd/all/stop", "", 0, False)
         client.on_connect = self._on_connect
         client.on_message = self._on_message
-        
-        client.connect("localhost", 1883, 60)
+        client.username_pw_set(conf["USERNAME"], conf["PASSWORD"])
+        host = conf["HOST"]
+        client.connect(conf["HOST"], int(conf["PORT"]), 60)
         return client
+    
+    def _parse_mqtt_conf(self,  path : str) -> dict[str, str]:
+        f = None
+        config = {"HOST" : None,
+                  "USERNAME" : None,
+                  "PORT" : None,
+                  "PASSWORD" : None}
+        try:
+            f = open(path, "r")
+            for line in f:
+                parts = line.split("=")
+                if parts[0] not in config.keys():
+                    print(f"Unknown field: {parts[0]}")
+                    continue
+                config[parts[0]] = parts[1].rstrip()
+        except:
+            return None
+
+        f.close()
+        return config
 
 class Manager:
     def __init__(self, client : MqttClient):
