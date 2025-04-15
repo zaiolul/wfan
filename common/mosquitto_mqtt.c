@@ -71,9 +71,9 @@ void mqtt_cleanup()
     free(ctx);
 }
 
-static int mqtt_read_config()
+static int mqtt_read_config(char *path)
 {
-    FILE *fp = fopen(MQTT_CONFIG_FILE, "r");
+    FILE *fp;
     size_t len;
     ssize_t count;
     char *line = NULL, *key, *value;
@@ -81,9 +81,9 @@ static int mqtt_read_config()
     //for strtol
     char *end;
     long val;
-    
+    fp = fopen(path, "r");
     if(fp == NULL) {
-        printf("Can't open mqtt config file\n");
+        fprintf(stderr, "Can't open mqtt config file\n");
         return -1;
     }
 
@@ -166,7 +166,28 @@ static int mqtt_setup_login()
 }
 //TODO mosquitto tls setup
 
-int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb)
+const char *mqtt_get_user()
+{
+    //Won't be changing, reading only so no locks here
+    return ctx->config.username;
+}
+
+int mqtt_set_will(topic_t will)
+{
+    int ret;
+    if ((ret = mosquitto_will_set(ctx->mosquitto, will.name, 0, NULL, will.qos, false))) {
+        printf("Will set err: %s\n", mosquitto_strerror(ret));
+        return ret;
+    }
+    return MOSQ_ERR_SUCCESS;
+}
+
+int mqtt_set_sub_topics(topic_t *topics)
+{
+    ctx->sub_topics = topics;
+}   
+
+int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb)
 {
     int ret;
     if (ctx && ctx->mosquitto)
@@ -179,10 +200,9 @@ int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb)
         return ret;
     }
     
-    ctx->sub_topics = topics;
     ctx->on_message = on_msg_cb;
 
-    ret = mqtt_read_config();
+    ret = mqtt_read_config(mqtt_conf_path);
      
     if (ret) 
         return MOSQ_ERR_INVAL;
@@ -194,16 +214,6 @@ int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb)
     mosquitto_connect_callback_set(ctx->mosquitto, mqtt_on_connect);
     mosquitto_message_callback_set(ctx->mosquitto, mqtt_on_message);
     mosquitto_publish_callback_set(ctx->mosquitto, mqtt_on_publish);
-
-    if ((ret = mosquitto_will_set(ctx->mosquitto, will.name, 0, NULL, will.qos, false))) {
-        printf("Will set err: %s\n", mosquitto_strerror(ret));
-        return ret;
-    }
-
-    if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 10)) != MOSQ_ERR_SUCCESS) {
-        printf("Can't connect to broker\n");
-        return ret;
-    }
     
     printf("MQTT setup done\n");
     return MOSQ_ERR_SUCCESS;
@@ -261,7 +271,13 @@ int mqtt_run()
     int ret;
     if (!ctx || !ctx->mosquitto)
         return MOSQ_ERR_INVAL;
-    printf("Start MQTT comm\n");
+
+    printf("Start MQTT comm\n"); 
+    if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 10)) != MOSQ_ERR_SUCCESS) {
+        printf("Can't connect to broker\n");
+        return ret;
+    }
+
     mqtt_loop();
     mosquitto_disconnect(ctx->mosquitto);
     return MOSQ_ERR_SUCCESS;

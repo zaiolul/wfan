@@ -35,8 +35,11 @@ typedef void (*mqtt_cb)(const char *topic, void* data, u_int32_t len);
 int mqtt_register_cb(mqtt_cb *func);
 int mqtt_subscribe_topic(topic_t topic);
 int mqtt_publish_topic(topic_t topic, payload_t payload);
-int mqtt_setup(topic_t *topics, topic_t will, mqtt_cb on_msg_cb);
+int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb);
 int mqtt_is_sub_match(char* sub, char *topic);
+int mqtt_set_sub_topics(topic_t *topics);
+int mqtt_set_will(topic_t will);
+const char *mqtt_get_user();
 void mqtt_cleanup();
 int mqtt_run();
 
