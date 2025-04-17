@@ -1,5 +1,5 @@
 MAX_CLIENTS = 8
-PKT_STATS_BUF_SIZE = 30
+PKT_STATS_BUF_SIZE = 10
 
 OUTPUT_DIR = "./scan_results"
 RES_FILE_EXT = ".csv"
@@ -49,7 +49,7 @@ SCANNER_REG_ACK = "reg_ack"
 
 
 # Scanner
-SCAN_CRASH_WAIT = 60
+SCAN_CRASH_WAIT = 15
 
 # Graph
 

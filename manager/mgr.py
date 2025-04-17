@@ -83,14 +83,17 @@ class Manager:
         # os.makedirs(consts.OUTPUT_DIR, exist_ok=True)
 
     def update_scanner_result_path(self, id : str, path: str):
-        self.scanners[id].outfile = f"{path}/{id}_{datetime.date.today()}.csv"
+        if len(path) == 0:
+            self.scanners[id].outfile = ""
+        else:
+            self.scanners[id].outfile = f"{path}/{id}_{datetime.date.today()}.csv"
         print(f"Updated path for {id}: {self.scanners[id].outfile}")
 
     def update_results_path(self, path : str):
         for id in self.scanners.keys():
             self.update_scanner_result_path(id, path)
 
-    def _update_scanner_display_stats(self, id : str, reset : bool = False, add : bool = True):
+    def update_scanner_display_stats(self, id : str, reset : bool = False, add : bool = True):
         if reset:
             self.rssi_bufs[id] = deque(maxlen=256_000)
             self.var_bufs[id] = deque(maxlen=256_000)
@@ -102,7 +105,7 @@ class Manager:
             self.ts_bufs[id].extend(self.scanners[id].stats.ts_buf)
 
     def fetch_scanner_display_stats(self, id : str):
-        return (self.rssi_bufs[id], self.var_bufs[id], self.ts_bufs[id])
+        return (list(self.rssi_bufs[id]), list(self.var_bufs[id]), list(self.ts_bufs[id]))
     
     #ok, so I cant really do iqr method, cause most of the time iqr = 0 in stable environment
     #need a better way than just comparing it like this
@@ -192,7 +195,7 @@ class Manager:
                 self.state = State.SCANNING
                 self.scanners[id].state = ScannerState.SCANNER_SCANNING
                 self._update_scanner_stats(id, data)
-                self._update_scanner_display_stats(id)
+                self.update_scanner_display_stats(id)
                 
                 if self.scanners[id].stats.done:
                     self._call_listeners(ManagerEvent.PKT_DATA_RECV, id)
@@ -223,7 +226,7 @@ class Manager:
                         self.can_scan = True
                         self.client.mqtt_client.publish(topic_regack, None, 1)
                         if self.state == State.SCANNING:
-                            self.client.mqtt_client.publish(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(self.selected_ap))
+                            self.client.mqtt_client.publish(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(self.selected_ap_obj))
                     else:
                         self.scanners[id].scanning = False
                         self.scanners.pop(id)
@@ -241,7 +244,7 @@ class Manager:
                 self.scanners[id].stats.ts_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
 
                 self.client.mqtt_client.publish(topic_regack, None, 1)
-                self._update_scanner_display_stats(id, reset=True, add=False)
+                self.update_scanner_display_stats(id, reset=True, add=False)
                 self._call_listeners(ManagerEvent.CLIENT_REGISTER)
 
             case consts.CMD_CRASH:
@@ -286,7 +289,7 @@ class Manager:
                 return True
             await asyncio.sleep(0.5)
 
-    async def common_aps_done(self, timeout: int = 10):
+    async def common_aps_done(self, timeout: int = 15):
         try:
             await asyncio.wait_for(self._common_aps_done(), timeout=timeout)
             return True
@@ -302,8 +305,9 @@ class Manager:
         self.listeners[event].append(callback)
 
     def remove_listener(self, event: ManagerEvent, callback: callable):
-        if callback.__func__ in [c.__func__ for c in self.listeners[event]]:
-            self.listeners[event].remove(callback)
+        # if callback.__func__ in [c.__func__ for c in self.listeners[event]]:
+        #     self.listeners[event].remove(callback)
+        pass #pretty buggy right now
 
     
     def _call_listeners(self, event: ManagerEvent, args = None):
