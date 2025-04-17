@@ -3,7 +3,7 @@ from nicegui import ui, app, run, events
 from collections import deque
 from nicegui.events import ValueChangeEventArguments, GenericEventArguments, ClickEventArguments
 import asyncio
-from data import WifiAp, State, ManagerEvent
+from data import WifiAp, State, ManagerEvent, ScannerState 
 import plotly.graph_objects as go
 import plotly.colors as plot_cl
 from mgr import Manager, MqttClient
@@ -12,7 +12,7 @@ import json
 from file_picker import local_file_picker
 import os
 from typing import Callable, Awaitable
-
+import time
 class ScannerSettings:
     def __init__(self, band, path):
         self.chans_24 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
@@ -39,13 +39,13 @@ class ScannerSettings:
                 try:
                     match parts[0]:
                         case "band":
-                            band = int(parts[1])
+                            band = int(parts[1].rstrip())
                         case "chans": #TODO actually validate range, now possible to pass illegal val
                             chans = []
                             for chan in parts[1].split(","):
                                 chans.append(int(chan))
                         case "results_dir":
-                            results_dir = parts[1]
+                            results_dir = parts[1].rstrip()
                 except:
                     print("Invalid settings config, use defaults")
                     return
@@ -80,7 +80,7 @@ class ScannerDialog:
         self.dialog.clear()
         self.manager.state = State.IDLE
         await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SCAN, json.dumps({"channels" : self.settings.selected_chans}))
-        with  self.dialog, ui.card().classes("w-1/2 items-center").props("flat"):
+        with self.dialog, ui.card().classes("w-1/2 items-center").props("flat"):
             spinner = ui.spinner(size="lg")
         
         self.dialog.open()
@@ -137,9 +137,10 @@ class ScannerDialog:
 class ScannerList:
     def __init__(self, manager: Manager, settings : ScannerSettings, dark):
         self.manager = manager 
+        self.settings = settings
         self.manager.register_listener(ManagerEvent.CLIENT_REGISTER, self.update_scanners)
         self.manager.register_listener(ManagerEvent.CLIENT_UNREGISTER, self.update_scanners)
-        # self.manager.register_listener(ManagerEvent.PKT_DATA_RECV, self.update_scanners)
+        self.manager.register_listener(ManagerEvent.PKT_DATA_RECV, self.update_scanners)
         self.manager.register_listener(ManagerEvent.PKT_DATA_RECV, self.update_plot_data)
         
         self.dialog = ScannerDialog(self.manager, settings, self.select_ap)
@@ -147,6 +148,12 @@ class ScannerList:
         self.var_bufs : dict[str, list[int]] = dict()
         self.ts_bufs : dict[str, list[int]] = dict()
         self.fig = go.Figure(layout={"template": "plotly_dark" if dark.value else "plotly"})
+
+        self.scanner_state_colors = {
+            ScannerState.SCANNER_SCANNING : "green-8",
+            ScannerState.SCANNER_IDLE : "orange-8",
+            ScannerState.SCANNER_CRASHED : "red-8"
+        }
 
         self.fig.update_layout(
             margin=dict(l=0, r=0, t=0, b=0),
@@ -184,15 +191,20 @@ class ScannerList:
         
         self.cover = ui.card().classes("items-center justify-center absolute inset-0 z-10 opacity-85").props("flat")
         self.cover.bind_visibility(self, "cover_visibility")
+
         with self.cover:
              ui.label("Waiting for client data....").classes("black text-2xl")
-
+    
     def update_scanners(self, args = None):
+        if not self.scanner_list:
+            return
+        
         with self.scanner_list:
             self.scanner_list.clear()
             if (len(self.manager.scanners.keys()) == 0):
                 ui.label("No clients registered.")
-
+                return
+        
             for i, id in enumerate(self.manager.scanners):
                 if id not in self.rssi_bufs.keys():
                     self.rssi_bufs[id] = deque(maxlen=500_000)
@@ -200,29 +212,29 @@ class ScannerList:
                     self.ts_bufs[id] = deque(maxlen=500_000)
                     self.scanner_states[id] = True
                     self.scanner_colors[id] = plot_cl.qualitative.Plotly[i]
+                    if len(self.settings.selected_dir) > 0: 
+                        self.manager.update_scanner_result_path(id, self.settings.selected_dir)
                 scanner = self.manager.scanners[id]
 
-                with ui.item(f"{id}", on_click=lambda sender, scan_id=id: self.on_scanner_select(sender, scan_id)).classes("font-bold bg-primary"):
-                    with ui.item_section().props("avatar"):
-                        if scanner.scanning:
-                            ui.element("div").classes("h-3 w-3 box scanning")
-                        else:
-                            ui.element("div").classes("h-3 w-3 box idle")
-                    # with ui.item_section():
-                    #     ui.label(f"{id}")
+                item = ui.item(f"{id}", on_click=lambda sender, scan_id=id: self.on_scanner_select(sender, scan_id)) \
+                    .classes(f"bg-{self.scanner_state_colors[scanner.state]} font-bold text-white")
+                if not self.scanner_states[id]:
+                    item.classes.append("opacity-70")
+                
+                with item:
+                    ui.tooltip(f"RSSI: {scanner.stats.average}").classes("text-lg")
+
             self.scanner_list.update()
     
     def on_scanner_select(self, e : ClickEventArguments, id):
         self.scanner_states[id] = not self.scanner_states[id]
         print(self.scanner_states[id] )
 
-        if self.scanner_states[id] == True:
-            # e.sender.classes("bg-primary")
-            e.sender.classes.append("bg-primary")
+        if self.scanner_states[id] == False:
+            e.sender.classes.append("opacity-70")
         else:
             print("should clear")
-            e.sender.classes.remove("bg-primary")
-            # e.sender.classes("bg-gray-600")
+            e.sender.classes.remove("opacity-70")
         e.sender.update()
         self.update_plot()
 
@@ -230,30 +242,34 @@ class ScannerList:
     def update_plot_data(self, id : str):
         if not id:
             return
-        if id not in  self.rssi_bufs.keys():
+        if id not in self.rssi_bufs.keys():
             self.scanner_states[id] = True
 
         scanner = self.manager.scanners[id]
         self.rssi_bufs[id].extend(list(scanner.stats.signal_buf))
         self.var_bufs[id].extend(list(scanner.stats.variance_buf))
         self.ts_bufs[id].extend(list(scanner.stats.ts_buf))
+        self.cover_visibility = False
+        print("UPDATE PLOT DATA COMPLETE")
         self.update_plot()
 
     def update_plot(self):
         self.fig.data = []
+        print("UPDATE PLOT")
         items = self.manager.scanners.items()
         for id, scanner in items:
             if id not in self.rssi_bufs.keys():
                 continue
             if len(scanner.stats.signal_buf) == 0:
                 continue
-            self.cover.set_visibility(False)
 
             if not self.scanner_states[id]:
                 continue
+            print("CREATE SCATTER")
+
             scatter = self.fig.add_scatter(x=list(self.ts_bufs[id]),
                                 y=list(self.var_bufs[id]) if self.data_type == 0 else list(self.rssi_bufs[id]),
-                                 marker=dict(color=self.scanner_colors[id]))
+                                marker=dict(color=self.scanner_colors[id]))
         if len(items) > 0 and not self.saved_layout:
             xaxis = list(self.ts_bufs.values())[0]
             if len(xaxis) > consts.X_AXIS_SPAN:
@@ -261,7 +277,6 @@ class ScannerList:
         else:
             self.fig.layout = self.saved_layout
         
-        self.cover_visibility = False
         self.plot.update()
     
     def change_plot_type(self, data_type : int):
@@ -293,16 +308,22 @@ class ScannerList:
         ap = e.args
         self.reset_data()
         self.cover_visibility = True
+        print(ap)
+        self.manager.selected_ap_obj = ap
         await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(ap))  
         self.dialog.dialog.close()
 
     def reset_data(self):
         for id in self.rssi_bufs.keys():
-            self.rssi_bufs[id] = deque(maxlen=500_000)
-            self.var_bufs[id] = deque(maxlen=500_000)
-            self.ts_bufs[id] = deque(maxlen=500_000)
             self.scanner_states[id] = True
         self.reset_axes()
+
+    def unregister_cbs(self):
+
+        self.manager.remove_listener(ManagerEvent.CLIENT_REGISTER, self.update_scanners)
+        self.manager.remove_listener(ManagerEvent.CLIENT_UNREGISTER, self.update_scanners)
+        self.manager.remove_listener(ManagerEvent.PKT_DATA_RECV, self.update_scanners)
+        self.manager.remove_listener(ManagerEvent.PKT_DATA_RECV, self.update_plot_data)
 class GraphTab:
     def __init__(self, manager : Manager, settings: ScannerSettings, dark):
         self.manager = manager
@@ -325,6 +346,10 @@ class GraphTab:
 
     def change_plot(self, args : ValueChangeEventArguments):
         self.scanners.change_plot_type(args.value)
+    
+    def unregister_cbs(self):
+        print("Unregister cbs")
+        self.scanners.unregister_cbs()
 
 class SettingsTab:
     def __init__(self, manager : Manager, settings : ScannerSettings):
@@ -346,7 +371,7 @@ class SettingsTab:
             
             with ui.row().classes("w-full justify-between"):
                 ui.label("Scanner settings").classes("text-3xl")
-                ui.button("Save", on_click=self.settings.save_options)
+                ui.button("Save", on_click=self.on_save)
             ui.separator()
             with ui.row().classes("w-full"):
                 with ui.column().classes("w-full md:w-1/2 shrink-0"):
@@ -370,7 +395,11 @@ class SettingsTab:
                     self.dir_label = ui.label()
                     ui.label
                     self.dir_label.set_text("Path not selected" if len(self.settings.selected_dir) == 0 else self.settings.selected_dir)
-               
+
+    async def on_save(self):
+        await self.settings.save_options()
+        self.manager.update_results_path(self.settings.selected_dir)
+        
     async def select_file_path(self):
         dirs = await local_file_picker('~')
         print(dirs)
@@ -406,10 +435,13 @@ class SettingsTab:
 def create_ui(manager: Manager, mqtt_client : MqttClient):
     @ui.page("/")
     def MainPage():
+        ctx = ui.context
+        
         settings = ScannerSettings(0, "")
         dark = ui.dark_mode(True)
         graph_tab = GraphTab(manager, settings, dark)
         settings_tab = SettingsTab(manager, settings)
+        app.on_disconnect(graph_tab.unregister_cbs)
         main = None
         
         def graph():

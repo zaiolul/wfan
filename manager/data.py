@@ -15,6 +15,11 @@ class RadioInfo:
     signal: int
     noise: int
 
+class ScannerState(enum.Enum):
+    SCANNER_IDLE = 0
+    SCANNER_SCANNING = 1
+    SCANNER_CRASHED = 2
+
 @dataclass
 class ScannerStats:
     average : int = 0 #whole window
@@ -34,13 +39,13 @@ class ScannerClient:
     scanning : bool = False
     stats : ScannerStats = field(default_factory=ScannerStats)
     crash_timer : Timer = None
+    state : ScannerState = ScannerState.SCANNER_IDLE
     outfile : str = None
 
 class State(enum.Enum):
     SCANNING = 0
     SELECTING = 1
     IDLE = 2
-
 class PayloadType(enum.Enum):
     AP_LIST = 0
     PKT_LIST = 1

@@ -8,7 +8,7 @@ import os
 import numpy as np
 import asyncio
 import datetime
-
+import copy
 class MqttClient:
     def __init__(self, config : str = consts.MQTT_CONF):
         self.queue = asyncio.Queue()
@@ -21,7 +21,8 @@ class MqttClient:
         client.subscribe([(consts.MANAGER_SUB_DATA, 1),
                         (consts.MANAGER_SUB_CMD_REGISTER, 1),
                         (consts.MANAGER_SUB_CMD_STOP, 1),
-                        (consts.MANAGER_SUB_CMD_CRASH, 1)])
+                        (consts.MANAGER_SUB_CMD_CRASH, 1),
+                        (consts.MANAGER_SUB_CMD_READY, 1)])
 
     def _on_message(self, client : mqtt.Client, userdata, msg : mqtt.MQTTMessage):
         payload = msg.payload.decode()
@@ -67,21 +68,49 @@ class Manager:
         self.client = client
         self.queue = self.client.queue 
         self.scanners : dict[str, ScannerClient] = dict()
-        self.can_scan = False #BINDS FROM UI
         self.ap_counters : dict[WifiAp, int] = dict()
         self.common_aps : list[WifiAp] = list()
-        self.selected_ap : WifiAp = None
+        self.selected_ap_obj : dict = None
         self.state = State.IDLE
         self.listeners = dict[ManagerEvent, list[callable]]()
 
-        os.makedirs(consts.OUTPUT_DIR, exist_ok=True)
+        #these fetched by UI for display
+        self.rssi_bufs : dict[str, deque] = dict()
+        self.var_bufs : dict[str, deque] = dict()
+        self.ts_bufs : dict[str, deque] = dict()
+        self.can_scan = False #BINDS FROM UI
 
+        # os.makedirs(consts.OUTPUT_DIR, exist_ok=True)
+
+    def update_scanner_result_path(self, id : str, path: str):
+        self.scanners[id].outfile = f"{path}/{id}_{datetime.date.today()}.csv"
+        print(f"Updated path for {id}: {self.scanners[id].outfile}")
+
+    def update_results_path(self, path : str):
+        for id in self.scanners.keys():
+            self.update_scanner_result_path(id, path)
+
+    def _update_scanner_display_stats(self, id : str, reset : bool = False, add : bool = True):
+        if reset:
+            self.rssi_bufs[id] = deque(maxlen=256_000)
+            self.var_bufs[id] = deque(maxlen=256_000)
+            self.ts_bufs[id] = deque(maxlen=256_000)
+
+        if add:
+            self.rssi_bufs[id].extend(self.scanners[id].stats.signal_buf)
+            self.var_bufs[id].extend(self.scanners[id].stats.variance_buf)
+            self.ts_bufs[id].extend(self.scanners[id].stats.ts_buf)
+
+    def fetch_scanner_display_stats(self, id : str):
+        return (self.rssi_bufs[id], self.var_bufs[id], self.ts_bufs[id])
+    
     #ok, so I cant really do iqr method, cause most of the time iqr = 0 in stable environment
     #need a better way than just comparing it like this
-    def is_outlier(self, scanner: ScannerClient, entry : int) -> bool: 
+    def _is_outlier(self, scanner: ScannerClient, entry : int) -> bool: 
         return entry < 1.75 * scanner.stats.average
-
-    async def update_scanner_stats(self, client: ScannerClient, data):
+    
+    def _update_scanner_stats(self, id: str, data):
+        client = self.scanners[id]
         if not client.stats.done:
             for item in data:
                 radio_obj = item["radio"]
@@ -97,14 +126,14 @@ class Manager:
                 client.stats.variance = np.var(client.stats.signal_buf)
             else:
                 return
-            
+
         for item in data:
             radio_obj = item["radio"]
             radio = RadioInfo(radio_obj["channel_freq"], radio_obj["antenna_signal"], radio_obj["noise"])
             ap_obj = item["ap"]
 
             val = radio.signal
-            if self.is_outlier(client, radio.signal):
+            if self._is_outlier(client, radio.signal):
                 val = client.stats.average 
 
             client.stats.signal_buf.append(val)
@@ -119,8 +148,25 @@ class Manager:
             client.stats.variance_buf.append(var_sum)
 
         client.stats.variance = np.var(client.stats.signal_buf)
-        
-    async def handle_data(self, id : str, payload : str):
+
+    async def _write_pkt_data(self, scanner : ScannerClient):
+        f = None
+        print(scanner.outfile)
+        exists = os.path.exists(scanner.outfile)
+        f = open(scanner.outfile, "a")         
+        if not exists:
+            print(f"{id} does not have a results file, create")
+            f.write(f"{self.selected_ap_obj["ssid"]};{self.selected_ap_obj["bssid"]};{self.selected_ap_obj["channel"]}\n")
+        signals = list(scanner.stats.signal_buf)
+        variances = list(scanner.stats.variance_buf)
+        timestamps = list(scanner.stats.ts_buf)
+
+        for i in range(len(signals)):
+            f.write(f"{timestamps[i]};{variances[i]:2};{signals[i]}\n")
+        f.close()
+
+
+    async def _handle_data(self, id : str, payload : str):
         json_data = json.loads(payload)
 
         data = json_data["data"]
@@ -139,21 +185,24 @@ class Manager:
                 if all(c.finished_scan for c in self.scanners.values()):
                     print("All scanners finished scanning")
                     self.common_aps = [bssid for bssid, count in self.ap_counters.items() if count == len(self.scanners)]
-                    print(self.common_aps)
                     self.state = State.SELECTING
-                    self.call_listeners(ManagerEvent.AP_SELECT)
+                    self._call_listeners(ManagerEvent.AP_SELECT)
 
             case PayloadType.PKT_LIST:
-                self.scanners[id].scanning = True
-                await self.update_scanner_stats(self.scanners[id], data)
+                self.state = State.SCANNING
+                self.scanners[id].state = ScannerState.SCANNER_SCANNING
+                self._update_scanner_stats(id, data)
+                self._update_scanner_display_stats(id)
+                
                 if self.scanners[id].stats.done:
-                    self.call_listeners(ManagerEvent.PKT_DATA_RECV, id)
+                    self._call_listeners(ManagerEvent.PKT_DATA_RECV, id)
+                await self._write_pkt_data(copy.deepcopy(self.scanners[id]))
 
-    def handle_client_crash(self, id: str):
+    def _handle_client_crash(self, id: str):
         self.scanners.pop(id)
-        self.call_listeners(ManagerEvent.CLIENT_UNREGISTER)
+        self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
         
-    def handle_cmd(self, cmd : str, id: str):
+    def _handle_cmd(self, cmd : str, id: str):
         print(f"Handling command {cmd} for {id}")
         
         if len(id) == 0:
@@ -170,47 +219,64 @@ class Manager:
                     if scanner.crash_timer is not None:
                         scanner.crash_timer.cancel()
                         scanner.crash_timer = None
+                        scanner.state = ScannerState.SCANNER_IDLE
+                        self.can_scan = True
                         self.client.mqtt_client.publish(topic_regack, None, 1)
+                        if self.state == State.SCANNING:
+                            self.client.mqtt_client.publish(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(self.selected_ap))
                     else:
                         self.scanners[id].scanning = False
                         self.scanners.pop(id)
                         if len(self.scanners.keys()) == 0:
+                            self.state = State.IDLE
                             self.can_scan = False
 
-                    self.call_listeners(ManagerEvent.CLIENT_UNREGISTER)
+                    self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
                     return
                 
                 self.scanners[id] = ScannerClient(id)
                 self.scanners[id].stats.signal_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
                 self.scanners[id].stats.variance_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
-                self.scanners[id].stats.variance_tmp_buf = deque(maxlen=5)
+                self.scanners[id].stats.variance_tmp_buf = deque(maxlen=5) #adjust for "smoothness"
                 self.scanners[id].stats.ts_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
 
                 self.client.mqtt_client.publish(topic_regack, None, 1)
-                self.can_scan = True
-                self.call_listeners(ManagerEvent.CLIENT_REGISTER)
+                self._update_scanner_display_stats(id, reset=True, add=False)
+                self._call_listeners(ManagerEvent.CLIENT_REGISTER)
 
             case consts.CMD_CRASH:
                 print(f"Crashing {id}")
                 if id not in self.scanners:
                     return
                 scanner = self.scanners[id]
-                self.scanners[id].scanning = False
-                #TODO fix, asyncio task?
-                # scanner.crash_timer = threading.Timer(consts.SCAN_CRASH_WAIT, lambda: self.handle_client_crash(id))
-                # scanner.crash_timer.start()
+                self.scanners[id].state = ScannerState.SCANNER_CRASHED
+                scanner.crash_timer = asyncio.create_task(self._handle_scanner_crash(id))
+                if all(s.state == ScannerState.SCANNER_CRASHED for s in self.scanners.values()):
+                    self.can_scan = False
+                self._call_listeners(ManagerEvent.CLIENT_REGISTER)
+            case consts.CMD_READY:
+                print(f"{id} READY")
+                self.can_scan = True
 
-    async def message_handler(self, topic: str, payload: str):
+    async def _handle_scanner_crash(self, id : str):
+        await asyncio.sleep(consts.SCAN_CRASH_WAIT)
+        print(f"Client {id} never recovered, clean")
+        self.scanners.pop(id)
+        if len(self.scanners) == 0:
+            self.state = State.IDLE
+        self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
+
+    async def _message_handler(self, topic: str, payload: str):
         topic_parts = topic.split("/")
         if mqtt.topic_matches_sub(consts.MANAGER_SUB_DATA, topic):
-            await self.handle_data(topic_parts[1], payload)
+            await self._handle_data(topic_parts[1], payload)
         elif mqtt.topic_matches_sub(consts.MANAGER_SUB_CMD_ID, topic):
-            self.handle_cmd(topic_parts[1], topic_parts[2])
+            self._handle_cmd(topic_parts[1], topic_parts[2])
 
     async def receive_next(self):
         try:
             topic, payload = await self.queue.get()
-            await self.message_handler(topic, payload)
+            await self._message_handler(topic, payload)
         except asyncio.QueueEmpty:
             return
         
@@ -228,48 +294,26 @@ class Manager:
             return False
 
     async def reset_scan_state(self):
-      
         self.state = State.IDLE
 
     def register_listener(self, event: ManagerEvent, callback: callable):
         if event not in self.listeners:
             self.listeners[event] = []
         self.listeners[event].append(callback)
+
+    def remove_listener(self, event: ManagerEvent, callback: callable):
+        if callback.__func__ in [c.__func__ for c in self.listeners[event]]:
+            self.listeners[event].remove(callback)
+
     
-    def call_listeners(self, event: ManagerEvent, args = None):
+    def _call_listeners(self, event: ManagerEvent, args = None):
         if event not in self.listeners:
             return
         for callback in self.listeners[event]:
-            asyncio.get_event_loop().call_soon_threadsafe(callback, args)
+            callback(args)
 
     async def mqtt_send(self, topic: str, payload: str = None, qos : int = 1):
         #clean up for upcoming states
         self.common_aps.clear()
         self.ap_counters.clear()
-
         self.client.mqtt_client.publish(topic=topic, payload=payload, qos=qos, retain=False)
-
-class Scanners:
-    def __init__(self):
-        self.scanners : dict[str, ScannerClient] = dict()
-        self.lock = asyncio.Lock()
-        self.queue = asyncio.Queue(maxsize=consts.MAX_CLIENTS)
-        self.cb = list()
-
-    async def register(self, id : str):
-        async with self.lock:
-            if id in self.scanners:
-                return
-            self.scanners[id] = ScannerClient(id)
-            self.on_change()
-    
-    async def unregister(self, s : ScannerClient):
-        async with self.lock:
-            if s not in self.scanners:
-                return
-            self.scanners.remove(s)
-            self.on_change()
-
-    def on_change(self):
-        for cb in self.cb:
-            cb(self.scanners)
