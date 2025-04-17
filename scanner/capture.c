@@ -40,12 +40,12 @@ pcap_t *cap_pcap_setup(char *device)
     int ret;
     pcap_t *handle;
     struct bpf_program filter;
-    char filter_exp[] = "type mgt subtype beacon";
+    char filter_exp[] = "type mgt";
     bpf_u_int32 net;
 
     // handle = pcap_open_live(device, CAP_BUF_SIZE, 0, 50, err_msg);
     handle = pcap_create(device, err_msg);          
-    pcap_set_snaplen(handle, 65535);
+    pcap_set_snaplen(handle, CAP_BUF_SIZE);
 
     if (handle == NULL)
     {
@@ -102,9 +102,6 @@ static int cap_add_ap(struct wifi_ap_info *ap)
     if (ctx->ap_count >= AP_MAX)
         return -1;
 
-    printf("ADD AP %s " MAC_FMT " %d\n",
-           strlen(ap->ssid) > 0 ? (char *)ap->ssid : "<hidden>",
-           MAC_BYTES(ap->bssid), ap->channel);
     memcpy(&(ctx->ap_list[ctx->ap_count++]), ap, sizeof(struct wifi_ap_info));
 
     return 0;
@@ -121,24 +118,30 @@ static int cap_add_pkt(struct cap_pkt_info *pkt)
 
 static void cap_apply_field_pad(enum radiotap_present_flags flag, u_int8_t *offset, u_int8_t **data)
 {
+    u_int8_t pad;
     u_int8_t rem = *offset % radiotap_entries[flag].align;
 
     if (!rem)
         return;
 
-    u_int8_t pad = radiotap_entries[flag].align - rem;
+    pad = radiotap_entries[flag].align - rem;
     *offset += pad;
     *data += pad;
 }
 
 static int cap_parse_radiotap(struct cap_pkt_info *cap_info, u_int8_t *packet)
 {
-    struct radiotap_header *radiotap = (struct radiotap_header *)packet;
-
-    u_int8_t offset = 0;
-    u_int8_t *data = (u_int8_t *)radiotap + sizeof(struct radiotap_header);
-    u_int32_t *present_flags = &radiotap->present_flags;
+    u_int8_t *data;
+    u_int32_t *present_flags;
     u_int8_t pad;
+    struct radiotap_header *radiotap;
+    u_int8_t offset;
+    radiotap = (struct radiotap_header *)packet;
+
+    offset = 0;
+    data = (u_int8_t *)radiotap + sizeof(struct radiotap_header);
+    present_flags = &radiotap->present_flags;
+    
 
     // skip over extended bitmask
     while (*present_flags & (1 << RADIOTAP_EXT))
@@ -182,10 +185,15 @@ static int cap_parse_radiotap(struct cap_pkt_info *cap_info, u_int8_t *packet)
 
 static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame_data, size_t data_len)
 {
-    struct wifi_beacon_fixed_params *fixed_params = (struct wifi_beacon_fixed_params *)frame_data;
-    u_int8_t *ptr = frame_data + sizeof(struct wifi_beacon_fixed_params);
-    size_t tag_param_len = data_len - sizeof(struct wifi_beacon_fixed_params);
     struct wifi_tag_param *tag;
+    u_int8_t *ptr;
+    struct wifi_beacon_fixed_params *fixed_params;
+    size_t tag_param_len;
+
+    fixed_params = (struct wifi_beacon_fixed_params *)frame_data;
+    ptr = frame_data + sizeof(struct wifi_beacon_fixed_params);
+    tag_param_len = data_len - sizeof(struct wifi_beacon_fixed_params);
+    
     int offset = 0;
 
     if (ctx->cap_scan_done)
@@ -213,11 +221,15 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
 
 static void cap_parse_mgmt_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_t len)
 {
-    struct wifi_frame_control *ctrl = (struct wifi_frame_control *)frame;
+    struct wifi_beacon_header *beacon;
+    u_int8_t *data;
+    struct wifi_frame_control *ctrl;
+
+    ctrl = (struct wifi_frame_control *)frame;
     switch (ctrl->subtype) {
     case FRAME_SUBTYPE_BEACON:
-        struct wifi_beacon_header *beacon = (struct wifi_beacon_header *)frame;
-        u_int8_t *data = (u_int8_t *)beacon + sizeof(struct wifi_beacon_header);
+        beacon = (struct wifi_beacon_header *)frame;
+        data = (u_int8_t *)beacon + sizeof(struct wifi_beacon_header);
         memcpy(&(cap_info->ap.bssid[0]), &(beacon->addr3[0]), 6);
         cap_parse_beacon_tags(cap_info, data, len - sizeof(struct wifi_beacon_header));
         if (ctx->state == STATE_AP_SEARCH_LOOP)
@@ -231,11 +243,12 @@ static void cap_parse_mgmt_frame(struct cap_pkt_info *cap_info, u_int8_t *frame,
 
 static void cap_parse_ctrl_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_t len)
 {
+    struct wifi_control_has_ta *c;
     struct wifi_frame_control *ctrl = (struct wifi_frame_control *)frame;
     switch (ctrl->subtype) {
     case FRAME_SUBTYPE_RTS:
     case FRAME_SUBTYPE_BLOCK_ACK:
-        struct wifi_control_has_ta *c = (struct wifi_control_has_ta *)frame;
+        c = (struct wifi_control_has_ta *)frame;
         memcpy(&(cap_info->ap.bssid[0]), &(c->addr2[0]), 6);
         break;
     default:
@@ -327,7 +340,7 @@ static void cap_next_state(cap_state_t state)
 
     if (!ctx->override_state) 
         ctx->state = state;
-        
+
     ctx->override_state = 0;
 }
 
@@ -422,7 +435,7 @@ static void _do_pkt_cap()
 
 void ap_list_to_json(cJSON *json, struct wifi_ap_info *ap_list, size_t count)
 {
-    char bssid[16];
+    char bssid[32] = {0};
     if (!json)
         return;
 
@@ -441,7 +454,7 @@ void ap_list_to_json(cJSON *json, struct wifi_ap_info *ap_list, size_t count)
 
 void pkt_list_to_json(cJSON *json, struct cap_pkt_info *pkt_list, size_t count)
 {
-    char bssid[16];
+    char bssid[32] = {0};
     if (!json)
         return;
 
@@ -532,7 +545,6 @@ void cap_set_chans(int *chans, int n)
 
 void cap_set_ap(struct wifi_ap_info *ap)
 {  
-    printf("%s()\n");
     if (!ctx || !ap)
         return;
 

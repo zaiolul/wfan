@@ -21,7 +21,7 @@ OBJS_JSON=$(SRCS_JSON:$(COMMON_SRC)/json/%.c=$(COMMON_SRC)/json/%.o)
 OBJS_COM += $(OBJS_JSON)
 
 LIBS_COM=-lmosquitto -lpthread
-LIBS_SCAN=$(LIBS_COM) -lpcap -lnl-3 -lnl-genl-3
+LIBS_SCAN=$(LIBS_COM) -lpcap -lnl-3 -lnl-genl-3 -lrt
 
 all: scanner  #manager
 
@@ -48,6 +48,7 @@ clean:
 	rm -f $(COMMON_SRC)/*.o
 	rm -f $(SCANNER_SRC)/*.o
 	rm -f $(MANAGER_SRC)/*.o
+	rm -f $(COMMON_SRC)/json/*.o
 	rm -f $(MANAGER_SRC)/$(EXE_MANAGER)
 	rm -f $(MANAGER_SRC)/$(EXE_SCANNER)
 
