@@ -40,7 +40,7 @@ pcap_t *cap_pcap_setup(char *device)
     int ret;
     pcap_t *handle;
     struct bpf_program filter;
-    char filter_exp[] = "type mgt";
+    char filter_exp[] = "type mgt subtype beacon";
     bpf_u_int32 net;
 
     // handle = pcap_open_live(device, CAP_BUF_SIZE, 0, 50, err_msg);
@@ -52,8 +52,8 @@ pcap_t *cap_pcap_setup(char *device)
         fprintf(stderr, "Failed to create handle: %s\n", err_msg);
         return NULL;
     }
-
-    pcap_set_timeout(handle, 10);
+    pcap_set_buffer_size(handle, 1024 * 1024);
+    pcap_set_timeout(handle, 50);
 
     if (pcap_activate(handle)) {
         fprintf(stderr, "Can't activate pcap handle, exit");
@@ -102,6 +102,7 @@ static int cap_add_ap(struct wifi_ap_info *ap)
     if (ctx->ap_count >= AP_MAX)
         return -1;
 
+    printf("Add AP %s ("MAC_FMT")\n", ap->ssid, MAC_BYTES(ap->bssid));
     memcpy(&(ctx->ap_list[ctx->ap_count++]), ap, sizeof(struct wifi_ap_info));
 
     return 0;
@@ -192,7 +193,7 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
 
     fixed_params = (struct wifi_beacon_fixed_params *)frame_data;
     ptr = frame_data + sizeof(struct wifi_beacon_fixed_params);
-    tag_param_len = data_len - sizeof(struct wifi_beacon_fixed_params);
+    tag_param_len = data_len - sizeof(struct wifi_beacon_fixed_params) - 4; //4 is FCS at the end, assume its always there
     
     int offset = 0;
 
@@ -206,6 +207,7 @@ static void cap_parse_beacon_tags(struct cap_pkt_info *cap_info, u_int8_t *frame
         switch (tag->id)
         {
         case TAG_SSID:
+           
             memcpy(cap_info->ap.ssid, ptr, tag->length);
             break;
         case TAG_DS:
@@ -230,6 +232,7 @@ static void cap_parse_mgmt_frame(struct cap_pkt_info *cap_info, u_int8_t *frame,
     case FRAME_SUBTYPE_BEACON:
         beacon = (struct wifi_beacon_header *)frame;
         data = (u_int8_t *)beacon + sizeof(struct wifi_beacon_header);
+        // printf("AP BSSID:"MAC_FMT"\n", MAC_BYTES(beacon->addr3));
         memcpy(&(cap_info->ap.bssid[0]), &(beacon->addr3[0]), 6);
         cap_parse_beacon_tags(cap_info, data, len - sizeof(struct wifi_beacon_header));
         if (ctx->state == STATE_AP_SEARCH_LOOP)
@@ -268,7 +271,7 @@ static int cap_parse_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_
     switch (ctrl->type)
     {
     case FRAME_TYPE_MGMT:
-        wfs_debug("-MANAGEMENT FRAME-\n", NULL);
+        // printf("-MANAGEMENT FRAME- %x (type %d subtype %d)\n", *ctrl, ctrl->type, ctrl->subtype);
         cap_parse_mgmt_frame(cap_info, frame, len);
         return 0;
         break;
@@ -355,9 +358,6 @@ void cap_override_state(cap_state_t state)
 
 static void _do_idle()
 {   
-    printf("Idle "MAC_FMT"\n", MAC_BYTES(ctx->selected_ap.bssid));
-    //mightve disconnected while scan was running, and received AP. Continue with that immediately.
-
     sleep(1);
     cap_next_state(STATE_IDLE);
 }
@@ -416,19 +416,31 @@ static void _do_ap_search_loop()
         cap_packet_handler(NULL, hdr, pkt);
     else if (ret < 0)
         fprintf(stderr, "Packet receive error\n");
-    //else timeout 
+    else msleep(10);
 
     cap_next_state(STATE_AP_SEARCH_LOOP);
 }
 
 static void _do_pkt_cap()
 {
+    struct pcap_pkthdr *hdr;
+    const u_int8_t *pkt;
+    int ret;
+
     if (ctx->pkt_count == PKT_MAX) {
         ctx->payload = PKT_LIST;
         cap_next_state(STATE_SEND);
         return;
     }
-    pcap_dispatch(ctx->handle, -1, cap_packet_handler, NULL);
+
+    ret = pcap_next_ex(ctx->handle,&hdr, &pkt);
+    if (ret > 0)
+        cap_packet_handler(NULL, hdr, pkt);
+    else if (ret < 0)
+        fprintf(stderr, "Packet receive error\n");
+     else msleep(10);
+    // pcap_dispatch(ctx->handle, 10, cap_packet_handler, NULL);
+
     cap_next_state(STATE_PKT_CAP);
 }
 
@@ -549,10 +561,7 @@ void cap_set_ap(struct wifi_ap_info *ap)
         return;
 
     printf("recv ap: %s\n", ap->ssid);
-    if (is_valid_mac(ctx->selected_ap.bssid))
-        return;
-    else
-        printf("INVALID AP RECEIVED");
+    
     memcpy(&ctx->selected_ap, ap, sizeof(struct wifi_ap_info));
 
     netlink_switch_chan(&ctx->nl, ctx->selected_ap.channel);
@@ -583,7 +592,6 @@ int cap_start_capture(struct capture_ctx *cap_ctx, char *dev, cap_send_cb cb)
     if (is_valid_mac(ctx->selected_ap.bssid))
        ctx->state = STATE_PKT_CAP;
 
-    printf("Start capture: first state %s\n", cap_state_to_str(ctx->state));
     while (ctx->state != STATE_END) {
         if (!handlers[ctx->state])
             continue;
