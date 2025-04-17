@@ -121,7 +121,7 @@ class Manager:
                 radio = RadioInfo(radio_obj["channel_freq"], radio_obj["antenna_signal"], radio_obj["noise"])
                 print(ap_obj)
                 client.stats.signal_buf.append(radio.signal)
-                client.stats.ts_buf.append(ap_obj["timestamp"]) #dont need the object here tbh, might change for radio case as well
+                # client.stats.ts_buf.append(ap_obj["timestamp"]) #dont need the object here tbh, might change for radio case as well
 
             if len(client.stats.signal_buf) == consts.PKT_STATS_BUF_SIZE:
                 client.stats.done = True
@@ -186,7 +186,7 @@ class Manager:
                     else:
                         self.ap_counters[ap] += 1
                 self.scanners[id].finished_scan = True
-
+                self.scanners[id].stats.done = False
                 if all(c.finished_scan for c in self.scanners.values()):
                     print("All scanners finished scanning")
                     self.common_aps = [bssid for bssid, count in self.ap_counters.items() if count == len(self.scanners)]
@@ -322,4 +322,7 @@ class Manager:
         #clean up for upcoming states
         self.common_aps.clear()
         self.ap_counters.clear()
+        for scanner in self.scanners.values():
+            scanner.finished_scan = False
+            scanner.state = ScannerState.SCANNER_IDLE
         self.client.mqtt_client.publish(topic=topic, payload=payload, qos=qos, retain=False)

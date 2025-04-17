@@ -234,7 +234,7 @@ class ScannerList:
                     # self.ts_bufs[id] = deque(maxlen=500_000)
                     self.scanner_states[id] = True
                     self.scanner_colors[id] = plot_cl.qualitative.Plotly[i]
-                    if len(self.settings.selected_dir) > 0: 
+                    if len(self.settings.selected_dir) > 0:
                         self.manager.update_scanner_result_path(id, self.settings.selected_dir)
                 scanner = self.manager.scanners[id]
 
@@ -305,7 +305,8 @@ class ScannerList:
             scatter = self.fig.add_scatter(x=ts_buf,
                                 y=var_buf if self.data_type == 0 else sig_buf,
                                 marker=dict(color=self.scanner_colors[id]))
-            xaxis = ts_buf
+            if len(ts_buf) > len(xaxis):
+                xaxis = ts_buf
         if len(items) > 0 and not self.saved_layout:
             if len(xaxis) > consts.X_AXIS_SPAN:
                 self.fig.update_xaxes(range = [xaxis[-consts.X_AXIS_SPAN], xaxis[-1]])
