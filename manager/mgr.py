@@ -154,6 +154,8 @@ class Manager:
 
     async def _write_pkt_data(self, scanner : ScannerClient):
         f = None
+        if not scanner.outfile:
+            return
         print(scanner.outfile)
         exists = os.path.exists(scanner.outfile)
         f = open(scanner.outfile, "a")         
