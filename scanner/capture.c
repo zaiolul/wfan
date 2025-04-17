@@ -114,7 +114,6 @@ static int cap_add_pkt(struct cap_pkt_info *pkt)
 {
     if (ctx->pkt_count >= PKT_MAX)
         return -1;
-
     memcpy(&(ctx->pkt_list[ctx->pkt_count++]), pkt, sizeof(struct cap_pkt_info));
 
     return 0;
@@ -360,8 +359,10 @@ static void _do_ap_search_start()
 {
     memset(ctx->ap_list, 0, sizeof(struct wifi_ap_info) * AP_MAX);
     memset(&(ctx->selected_ap), 0, sizeof(struct wifi_ap_info));
-    
     ctx->ap_count = 0;
+    memset(&ctx->pkt_list, 0, sizeof(ctx->pkt_list));
+    ctx->pkt_count = 0;
+    
     ctx->cap_band = BAND_24G;
     ctx->cap_channel_idx = 0;
     ctx->cap_scan_done = 0;
@@ -527,23 +528,24 @@ void cap_set_chans(int *chans, int n)
 
 void cap_set_ap(struct wifi_ap_info *ap)
 {
-    if (!ap)
+    if (!ctx || !ap)
         return;
     printf("recv ap: %s\n", ap->ssid);
+    if (is_valid_mac(ctx->selected_ap.bssid))
+        return;
     memcpy(&ctx->selected_ap, ap, sizeof(struct wifi_ap_info));
+
     netlink_switch_chan(&ctx->nl, ctx->selected_ap.channel);
     ctx->time = time_millis();
     cap_override_state(STATE_PKT_CAP);
 }
 
-int cap_start_capture(char *dev, cap_send_cb cb)
+int cap_start_capture(struct capture_ctx *cap_ctx, char *dev, cap_send_cb cb)
 {
-    ctx = malloc(sizeof(struct capture_ctx));
-    if (!ctx) {
-        printf("%s(): failed to allocate context\n");
+    if (!cap_ctx) 
         return -1;
-    }
-    memset(ctx, 0, sizeof(struct capture_ctx));
+
+    ctx = cap_ctx;
 
     ctx->handle = cap_pcap_setup(dev);
     ctx->send_cb = cb;
@@ -567,7 +569,5 @@ int cap_start_capture(char *dev, cap_send_cb cb)
     }
 
     cap_pcap_close(ctx->handle);
-    free(ctx);
-    ctx = NULL;
     return 0;
 }

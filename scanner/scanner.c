@@ -104,7 +104,7 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
             return;
         printf("DO AP SELECT\n");
         json = cJSON_Parse(data);
-
+        printf("%s\n",cJSON_Print(json));
         strncpy(bssid_str, cJSON_GetObjectItem(json, "bssid")->valuestring,
             sizeof(bssid_str));
         strncpy((char *)ap.ssid, cJSON_GetObjectItem(json, "ssid")->valuestring,
@@ -164,6 +164,9 @@ int try_register()
         }
    
         if (ctx->registered) {
+            sprintf(reg_topic.name, "%s/%s", SCANNER_PUB_CMD_READY, ctx->client_id);
+
+            mqtt_publish_topic(reg_topic, empty);
             printf("Client registered.\n");
             pthread_mutex_unlock(&shared.lock);
             return 0;
@@ -189,7 +192,8 @@ int main(int argc, char *argv[])
     pthread_t mqtt_thread;
     struct sigaction act;    
     topic_t will = {0, 1};
-    
+    struct capture_ctx *cap_ctx;
+
     act.sa_handler = sig_handler;
     sigaction(SIGINT, &act, NULL);
 
@@ -222,15 +226,24 @@ int main(int argc, char *argv[])
     if ((ret = mqtt_set_will(will)))
         goto mqtt_err;
     
+    cap_ctx = malloc(sizeof(struct capture_ctx));
+    if (!ctx) {
+        printf("%s(): failed to allocate context\n");
+        return -1;
+    }
+    memset(cap_ctx, 0, sizeof(struct capture_ctx));
+
     pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
 
     while (1) {
         if (try_register())
             break;
 
-        if (cap_start_capture(ctx->dev, &msg_send_cb))
+        if (cap_start_capture(cap_ctx, ctx->dev, &msg_send_cb))
             break;
     }
+    free(cap_ctx);
+
     pthread_join(mqtt_thread, NULL);
 
 mqtt_err:

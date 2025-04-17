@@ -165,7 +165,6 @@ int bssid_equal(unsigned char *a, unsigned char *b)
 int bssid_str_to_val(char *str, unsigned char *bssid)
 {
     char part[3];
-    printf("str before parsing: %s\n", str);
     if (strlen(str) != 17) //2 chars + 1 sep * 6
         return -1;
 
@@ -174,7 +173,6 @@ int bssid_str_to_val(char *str, unsigned char *bssid)
        part[2] = '\0';
 
        bssid[i] = (unsigned char)strtol(part, NULL, 16);
-       printf("part: %s (%s) val %x\n", part, &str[i * 3], bssid[i] );
     }
     return 0;
 }
