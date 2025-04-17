@@ -325,8 +325,9 @@ static void cap_next_state(cap_state_t state)
     if (!ctx)
         return;
 
-    if (!ctx->override_state)
+    if (!ctx->override_state) 
         ctx->state = state;
+        
     ctx->override_state = 0;
 }
 
@@ -340,7 +341,10 @@ void cap_override_state(cap_state_t state)
 }
 
 static void _do_idle()
-{
+{   
+    printf("Idle "MAC_FMT"\n", MAC_BYTES(ctx->selected_ap.bssid));
+    //mightve disconnected while scan was running, and received AP. Continue with that immediately.
+
     sleep(1);
     cap_next_state(STATE_IDLE);
 }
@@ -527,12 +531,16 @@ void cap_set_chans(int *chans, int n)
 }
 
 void cap_set_ap(struct wifi_ap_info *ap)
-{
+{  
+    printf("%s()\n");
     if (!ctx || !ap)
         return;
+
     printf("recv ap: %s\n", ap->ssid);
     if (is_valid_mac(ctx->selected_ap.bssid))
         return;
+    else
+        printf("INVALID AP RECEIVED");
     memcpy(&ctx->selected_ap, ap, sizeof(struct wifi_ap_info));
 
     netlink_switch_chan(&ctx->nl, ctx->selected_ap.channel);
@@ -553,14 +561,17 @@ int cap_start_capture(struct capture_ctx *cap_ctx, char *dev, cap_send_cb cb)
         fprintf(stderr, "Failed to setup pcap on device\n");
         return PCAP_ERROR;
     }
-
+    
     if (netlink_init(&ctx->nl, dev)) {
         fprintf(stderr, "Failed to setup netlink\n");
         return NLE_FAILURE;
     }
 
-    cap_next_state(STATE_IDLE);
+    ctx->state = STATE_IDLE;
+    if (is_valid_mac(ctx->selected_ap.bssid))
+       ctx->state = STATE_PKT_CAP;
 
+    printf("Start capture: first state %s\n", cap_state_to_str(ctx->state));
     while (ctx->state != STATE_END) {
         if (!handlers[ctx->state])
             continue;

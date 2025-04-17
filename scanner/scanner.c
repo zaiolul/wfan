@@ -5,6 +5,7 @@
 #define TO_STR(val) TO_STR_VAL(val)
 
 static struct scanner_client_ctx *ctx;
+static struct capture_ctx *cap_ctx;
 
 struct threads_shared shared = {0};
 
@@ -72,16 +73,16 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
     cJSON *json = NULL;
     cJSON *arr = NULL;
     cJSON *obj = NULL;
-    struct wifi_ap_info ap;
     char bssid_str[32]; //big enough buffer
     int channel;
-
+    struct wifi_ap_info ap;
     int chans[128];
     int chan_count = 0;
 
     if (!strcmp(cmd, CMD_STOP)) {
         printf("GOT CMD STOP\n");
         ctx->registered = 0;
+        memset(&ctx->selected_ap, 0 , sizeof(struct wifi_ap_info));
         cap_override_state(STATE_END);
     } else if (!strcmp(cmd, CMD_SCAN)) {
         if (!ctx->registered)
@@ -100,8 +101,6 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
         cap_override_state(STATE_AP_SEARCH_START);
 
     } else if (!strcmp(cmd, CMD_SELECT_AP)) {
-        if (!ctx->registered)
-            return;
         printf("DO AP SELECT\n");
         json = cJSON_Parse(data);
         printf("%s\n",cJSON_Print(json));
@@ -110,8 +109,13 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
         strncpy((char *)ap.ssid, cJSON_GetObjectItem(json, "ssid")->valuestring,
             sizeof(ap.ssid));
         bssid_str_to_val(bssid_str, ap.bssid);
-        ap.channel = cJSON_GetObjectItem(json, "channel")->valueint;         
-        cap_set_ap(&ap);
+        ap.channel = cJSON_GetObjectItem(json, "channel")->valueint; 
+
+        if (ctx->registered)
+            cap_set_ap(&ap);
+
+        memcpy(&ctx->selected_ap, &ap, sizeof(struct wifi_ap_info)); //hold on to it
+
     }
     cJSON_free(json);
 }
@@ -168,6 +172,10 @@ int try_register()
 
             mqtt_publish_topic(reg_topic, empty);
             printf("Client registered.\n");
+            // Edge case: crashed, received ap from active scan, but not yet initialized. Set to saved AP.
+            //Error handling is later, so no problem if this is null
+            printf(MAC_FMT"\n", MAC_BYTES(ctx->selected_ap.bssid));
+            memcpy(&cap_ctx->selected_ap, &ctx->selected_ap, sizeof(struct wifi_ap_info));
             pthread_mutex_unlock(&shared.lock);
             return 0;
         }
@@ -192,7 +200,7 @@ int main(int argc, char *argv[])
     pthread_t mqtt_thread;
     struct sigaction act;    
     topic_t will = {0, 1};
-    struct capture_ctx *cap_ctx;
+    cap_ctx = NULL;
 
     act.sa_handler = sig_handler;
     sigaction(SIGINT, &act, NULL);
@@ -202,6 +210,7 @@ int main(int argc, char *argv[])
     pcap_init(PCAP_CHAR_ENC_UTF_8, NULL);
 
     ctx = malloc(sizeof(struct scanner_client_ctx));
+    memset(ctx, 0, sizeof(struct scanner_client_ctx));
     pthread_mutex_init(&shared.lock, NULL);
     ctx->registered = 0;
     shared.stop = 0;
@@ -234,11 +243,11 @@ int main(int argc, char *argv[])
     memset(cap_ctx, 0, sizeof(struct capture_ctx));
 
     pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
-
+    
     while (1) {
         if (try_register())
             break;
-
+        
         if (cap_start_capture(cap_ctx, ctx->dev, &msg_send_cb))
             break;
     }

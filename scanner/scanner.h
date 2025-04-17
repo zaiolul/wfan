@@ -20,6 +20,7 @@ struct scanner_client_ctx{
     char *client_id;
     topic_t sub_topics[MQTT_MAX_TOPICS];
     int registered;
+    struct wifi_ap_info selected_ap;
 };
 
 #endif
