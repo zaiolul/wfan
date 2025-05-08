@@ -265,9 +265,6 @@ static int cap_parse_frame(struct cap_pkt_info *cap_info, u_int8_t *frame, size_
 
     struct wifi_frame_control *ctrl = (struct wifi_frame_control *)frame;
 
-    cap_info->type = ctrl->type;
-    cap_info->subtype = ctrl->subtype;
-
     switch (ctrl->type)
     {
     case FRAME_TYPE_MGMT:

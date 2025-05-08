@@ -9,7 +9,8 @@
 #include <net/if.h>
 #include "utils.h"
 
-struct nl80211_data {
+struct nl80211_data
+{
     struct nl_sock *sock;
     int id;
     int ifindex;

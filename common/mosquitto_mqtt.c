@@ -8,7 +8,8 @@
 #include <unistd.h>
 #include <pthread.h>
 
-static struct mqtt_ctx {
+static struct mqtt_ctx
+{
     struct mosquitto *mosquitto;
     struct mosquitto_conf config;
     topic_t *sub_topics;
@@ -19,7 +20,7 @@ static struct mqtt_ctx {
 
 extern struct threads_shared shared;
 
-int mqtt_is_sub_match(char* sub, char *topic)
+int mqtt_is_sub_match(char *sub, char *topic)
 {
     bool match_res;
     int ret;
@@ -28,12 +29,12 @@ int mqtt_is_sub_match(char* sub, char *topic)
 }
 
 int mqtt_subscribe_topic(topic_t topic)
-{   
+{
     pthread_mutex_lock(&ctx->lock);
     int ret = mosquitto_subscribe(ctx->mosquitto, NULL, topic.name, topic.qos);
-    
+
     if (ret != MOSQ_ERR_SUCCESS)
-        printf("Failed subscription: %s, %s\n", topic.name,  mosquitto_strerror(ret));
+        printf("Failed subscription: %s, %s\n", topic.name, mosquitto_strerror(ret));
 
     printf("subscribe topic: %s qos: %d\n", topic.name, topic.qos);
     pthread_mutex_unlock(&ctx->lock);
@@ -48,12 +49,12 @@ int mqtt_publish_topic(topic_t topic, payload_t payload)
     printf("%s()\n", __func__);
 
     printf("publish topic: %s len: %d\n", topic.name, payload.len);
-    int ret = mosquitto_publish(ctx->mosquitto, &message_id, topic.name, 
-        payload.len, payload.data, topic.qos, false);
+    int ret = mosquitto_publish(ctx->mosquitto, &message_id, topic.name,
+                                payload.len, payload.data, topic.qos, false);
 
     if (ret)
-        printf("Failed publish: %s, %s\n", topic.name,  mosquitto_strerror(ret));
-    else 
+        printf("Failed publish: %s, %s\n", topic.name, mosquitto_strerror(ret));
+    else
         ret = message_id;
 
     pthread_mutex_unlock(&ctx->lock);
@@ -78,16 +79,18 @@ static int mqtt_read_config(char *path)
     ssize_t count;
     char *line = NULL, *key, *value;
 
-    //for strtol
+    // for strtol
     char *end;
     long val;
     fp = fopen(path, "r");
-    if(fp == NULL) {
+    if (fp == NULL)
+    {
         fprintf(stderr, "Can't open mqtt config file\n");
         return -1;
     }
 
-    while((count = getline(&line, &len, fp)) != -1) {
+    while ((count = getline(&line, &len, fp)) != -1)
+    {
         if (line[count - 1] == '\n')
             line[count - 1] = '\0';
 
@@ -97,19 +100,28 @@ static int mqtt_read_config(char *path)
         if (!value || strlen(value) == 0)
             continue;
         wfs_debug("Key: '%s', Value: '%s'\n", key, value);
-        
-        if(strcmp(key, "HOST") == 0) {
+
+        if (strcmp(key, "HOST") == 0)
+        {
             ctx->config.host = strdup(value);
             ctx->config.host[count - 1] = '\0';
-        } else if(strcmp(key, "PORT") == 0) {
+        }
+        else if (strcmp(key, "PORT") == 0)
+        {
             ctx->config.port = (int)strtol(value, &end, 10);
-        } else if(strcmp(key, "USERNAME") == 0) {
+        }
+        else if (strcmp(key, "USERNAME") == 0)
+        {
             ctx->config.username = strdup(value);
             ctx->config.username[count - 1] = '\0';
-        } else if(strcmp(key, "PASSWORD") == 0) {
+        }
+        else if (strcmp(key, "PASSWORD") == 0)
+        {
             ctx->config.password = strdup(value);
             ctx->config.password[count - 1] = '\0';
-        } else {
+        }
+        else
+        {
             printf("Unknown key in config file: %s\n", key);
         }
     }
@@ -119,11 +131,12 @@ static int mqtt_read_config(char *path)
 
     fclose(fp);
 
-    if (!ctx->config.host || !ctx->config.port) {
+    if (!ctx->config.host || !ctx->config.port)
+    {
         printf(" Broker host or port not set, check config.\n");
         return -1;
     }
-    
+
     return 0;
 }
 
@@ -137,10 +150,12 @@ static void mqtt_on_message(struct mosquitto *mosq, void *obj, const struct mosq
 static void mqtt_on_connect(struct mosquitto *mosquitto, void *obj, int reason_code)
 {
     int ret;
-	if(reason_code != 0){
+    if (reason_code != 0)
+    {
         return;
-	}
-    for(int i = 0; i < MQTT_MAX_TOPICS; i ++) {
+    }
+    for (int i = 0; i < MQTT_MAX_TOPICS; i++)
+    {
         if (!strlen(ctx->sub_topics[i].name))
             break;
         mqtt_subscribe_topic(ctx->sub_topics[i]);
@@ -149,33 +164,35 @@ static void mqtt_on_connect(struct mosquitto *mosquitto, void *obj, int reason_c
 
 static void mqtt_on_publish(struct mosquitto *mosquitto, void *obj, int message_id)
 {
-    //stub
+    // stub
 }
 
 static int mqtt_setup_login()
 {
     int ret;
-    
-    //safe to not check user/pass
-    if ((ret = mosquitto_username_pw_set(ctx->mosquitto, ctx->config.username, ctx->config.password)) != MOSQ_ERR_SUCCESS) {
+
+    // safe to not check user/pass
+    if ((ret = mosquitto_username_pw_set(ctx->mosquitto, ctx->config.username, ctx->config.password)) != MOSQ_ERR_SUCCESS)
+    {
         // syslog(LOG_ERR, "User settings error");
         printf("User settings error (%d)\n", ret);
         return ret;
     }
     return MOSQ_ERR_SUCCESS;
 }
-//TODO mosquitto tls setup
+// TODO mosquitto tls setup
 
 const char *mqtt_get_user()
 {
-    //Won't be changing, reading only so no locks here
+    // Won't be changing, reading only so no locks here
     return ctx->config.username;
 }
 
 int mqtt_set_will(topic_t will)
 {
     int ret;
-    if ((ret = mosquitto_will_set(ctx->mosquitto, will.name, 0, NULL, will.qos, false))) {
+    if ((ret = mosquitto_will_set(ctx->mosquitto, will.name, 0, NULL, will.qos, false)))
+    {
         printf("Will set err: %s\n", mosquitto_strerror(ret));
         return ret;
     }
@@ -185,7 +202,7 @@ int mqtt_set_will(topic_t will)
 int mqtt_set_sub_topics(topic_t *topics)
 {
     ctx->sub_topics = topics;
-}   
+}
 
 int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb)
 {
@@ -195,16 +212,17 @@ int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb)
     ctx = malloc(sizeof(struct mqtt_ctx));
     pthread_mutex_init(&ctx->lock, NULL);
 
-    if ((ret = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS) {
+    if ((ret = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS)
+    {
         printf("Can't initialize mosquitto lib\n");
         return ret;
     }
-    
+
     ctx->on_message = on_msg_cb;
 
     ret = mqtt_read_config(mqtt_conf_path);
-     
-    if (ret) 
+
+    if (ret)
         return MOSQ_ERR_INVAL;
 
     ctx->mosquitto = mosquitto_new(NULL, true, NULL);
@@ -214,7 +232,7 @@ int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb)
     mosquitto_connect_callback_set(ctx->mosquitto, mqtt_on_connect);
     mosquitto_message_callback_set(ctx->mosquitto, mqtt_on_message);
     mosquitto_publish_callback_set(ctx->mosquitto, mqtt_on_publish);
-    
+
     printf("MQTT setup done\n");
     return MOSQ_ERR_SUCCESS;
 }
@@ -222,8 +240,9 @@ int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb)
 static int mqtt_try_reconnect(struct mosquitto *mosquitto, int retry_count)
 {
     int ret;
-    for (int i = 0; i < retry_count; i ++) {
-        if(mosquitto_reconnect(mosquitto) == MOSQ_ERR_SUCCESS)
+    for (int i = 0; i < retry_count; i++)
+    {
+        if (mosquitto_reconnect(mosquitto) == MOSQ_ERR_SUCCESS)
             return MOSQ_ERR_SUCCESS;
         sleep(1);
     }
@@ -235,32 +254,36 @@ static void mqtt_loop()
 {
     int ret;
 
-    while (1) {
+    while (1)
+    {
         pthread_mutex_lock(&shared.lock);
-        if (shared.stop) {
+        if (shared.stop)
+        {
             pthread_mutex_unlock(&shared.lock);
         }
         pthread_mutex_unlock(&shared.lock);
-        
+
         ret = mosquitto_loop(ctx->mosquitto, -1, 1);
         if (ret == MOSQ_ERR_SUCCESS)
             continue;
-        switch (ret){
-            case MOSQ_ERR_CONN_LOST:
-                printf("Lost connection to broker\n");
-                break;
-            case MOSQ_ERR_NO_CONN:
-                if (mqtt_try_reconnect(ctx->mosquitto, CONN_RETRY_CNT) != MOSQ_ERR_SUCCESS) {                 
-                    printf("Couldn't reconnect to broker after multiple attemps, exiting\n");
-                }    
-                break;
-            default:
-                printf("Unhandled error: %s", mosquitto_strerror(ret));
-                break;
+        switch (ret)
+        {
+        case MOSQ_ERR_CONN_LOST:
+            printf("Lost connection to broker\n");
+            break;
+        case MOSQ_ERR_NO_CONN:
+            if (mqtt_try_reconnect(ctx->mosquitto, CONN_RETRY_CNT) != MOSQ_ERR_SUCCESS)
+            {
+                printf("Couldn't reconnect to broker after multiple attemps, exiting\n");
+            }
+            break;
+        default:
+            printf("Unhandled error: %s", mosquitto_strerror(ret));
+            break;
         }
 
-        //i can just write returns in each of these cases, or just put the whole switch in this
-        //conditional, but eh
+        // i can just write returns in each of these cases, or just put the whole switch in this
+        // conditional, but eh
         if (ret != MOSQ_ERR_SUCCESS)
             return;
     }
@@ -272,8 +295,9 @@ int mqtt_run()
     if (!ctx || !ctx->mosquitto)
         return MOSQ_ERR_INVAL;
 
-    printf("Start MQTT comm\n"); 
-    if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 10)) != MOSQ_ERR_SUCCESS) {
+    printf("Start MQTT comm\n");
+    if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 10)) != MOSQ_ERR_SUCCESS)
+    {
         printf("Can't connect to broker\n");
         return ret;
     }

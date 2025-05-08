@@ -15,8 +15,6 @@ struct wifi_ap_info {
 };
 
 struct cap_pkt_info {
-    u_int8_t type;
-    u_int8_t subtype;
     struct radio_info radio; 
     struct wifi_ap_info ap;
 };

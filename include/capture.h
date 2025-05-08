@@ -135,10 +135,8 @@ struct capture_ctx {
     size_t ap_count;
     struct cap_pkt_info pkt_list[PKT_MAX];
     size_t pkt_count;
-    enum cap_send_payload_type payload;
-    u_int32_t payload_len;
-    enum cap_capture_state state;
-    enum cap_capture_state prev_state;
+    cap_payload_t payload;
+    cap_state_t state;
 
     struct wifi_ap_info selected_ap;
     pcap_t *handle;

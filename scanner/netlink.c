@@ -79,10 +79,9 @@ int netlink_switch_chan(struct nl80211_data *nl, int chan)
     NLA_PUT_U32(msg, NL80211_ATTR_IFINDEX, nl->ifindex);
     NLA_PUT_U32(msg, NL80211_ATTR_WIPHY_FREQ, freq);
 
-   
     ret = nl_send_auto(nl->sock, msg);
     nl_recvmsgs_default(nl->sock);
-    printf ("nlmsg send and receive took: %f ms\n", time_millis() - time);
+    printf("nlmsg send and receive took: %f ms\n", time_millis() - time);
     nlmsg_free(msg);
     msleep(10); // 10 ms wait
     return 0;

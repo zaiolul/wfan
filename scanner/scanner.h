@@ -12,7 +12,8 @@
 #include <signal.h>
 #include <stdlib.h>
 
-struct scanner_client_ctx{
+struct scanner_client_ctx
+{
     char *dev;
     char *mqtt_conf_path;
     int chanlist[14];

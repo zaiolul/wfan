@@ -23,7 +23,6 @@ struct mosquitto_conf {
     int port;
     char *username;
     char *password;
-    char cafile[PATH_MAX];
 };
 
 struct threads_shared {
