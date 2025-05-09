@@ -81,7 +81,7 @@ class Manager:
         self.common_aps: list[WifiAp] = list()
         self.selected_ap_obj: dict = None
         self.state = ManagerState.IDLE
-        self.listeners = dict[ManagerEvent, list[callable]]()
+        self.listeners : dict[str, dict[ManagerEvent, list[callable]]] = dict()
 
         # these fetched by UI for display
         self.rssi_bufs: dict[str, deque] = dict()
@@ -142,8 +142,8 @@ class Manager:
 
         z = (entry - scanner.stats.average) / np.sqrt(scanner.stats.variance)
         check = abs(z) > 10
-        if check:
-            print(f"scanner {scanner.id} filtered outlier {entry} with z = {z}")
+        # if check:
+        print(f"scanner {scanner.id} entry {entry} with z = {z}")
         return abs(z) > 10
 
     def _update_scanner_stats(self, id: str, data):
@@ -227,7 +227,7 @@ class Manager:
         match PayloadType(json_data["type"]):
             case PayloadType.AP_LIST:
                 for item in data:
-                    ap = WifiAp(item["ssid"], item["bssid"], item["channel"])
+                    ap = WifiAp(item["ssid"] if item["ssid"] != "" else "<HIDDEN>", item["bssid"], item["channel"])
                     self.scanners[id].ap_list.append(ap)
                     if ap not in self.ap_counters:
                         self.ap_counters[ap] = 1
@@ -249,7 +249,6 @@ class Manager:
                 self.state = ManagerState.SCANNING
                 self.scanners[id].state = ScannerState.SCANNER_SCANNING
                 count = self._update_scanner_stats(id, data)
-                print(f"received {count} packets from {id}")
                 self.update_scanner_display_stats(id, count=count)
 
                 if self.scanners[id].stats.done:
@@ -261,8 +260,6 @@ class Manager:
         self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
 
     def _handle_cmd(self, cmd: str, id: str):
-        print(f"Handling command {cmd} for {id}")
-
         if len(id) == 0:
             print("Invalid id")
             return
@@ -368,22 +365,29 @@ class Manager:
     async def reset_scan_state(self):
         self.state = ManagerState.IDLE
 
-    def register_listener(self, event: ManagerEvent, callback: callable):
-        if event not in self.listeners:
-            self.listeners[event] = []
-        self.listeners[event].append(callback)
-
-    def remove_listener(self, event: ManagerEvent, callback: callable):
-        # if callback.__func__ in [c.__func__ for c in self.listeners[event]]:
-        #     self.listeners[event].remove(callback)
-        pass  # pretty buggy right now
+    def register_listener(self, id : str, event: ManagerEvent, callback: callable):
+        if id not in self.listeners.keys():
+            self.listeners[id] = dict()
+            
+        if event not in self.listeners[id].keys():
+            self.listeners[id] = {
+                event: [callback]
+            }
+        else: 
+            self.listeners[id][event].append(callback)
 
     def _call_listeners(self, event: ManagerEvent, args=None):
-        if event not in self.listeners:
-            return
-        for callback in self.listeners[event]:
-            callback(args)
-
+        for id, cbs in self.listeners.items():
+            if event not in cbs.keys():
+                continue
+            
+            for callback in cbs[event]:
+                callback(args)
+                
+    def remove_listeners(self, id: str):
+        if id in self.listeners.keys():
+            self.listeners.pop(id)
+            
     async def mqtt_send(self, topic: str, payload: str = None, qos: int = 1):
         # clean up for upcoming states
         self.common_aps.clear()

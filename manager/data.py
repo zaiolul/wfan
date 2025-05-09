@@ -24,6 +24,11 @@ class ScannerState(enum.Enum):
 class ScannerStats:
     average : int = 0 #whole window
     variance : int = 0 #whole window
+    
+    #just for stats
+    minimum: int = 0
+    maximum: int = 0
+    
     signal_buf : deque[int] = field(default_factory=deque)
     variance_tmp_buf : deque[int] = field(default_factory=deque)
     variance_buf : deque[int] = field(default_factory=deque)

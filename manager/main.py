@@ -187,14 +187,16 @@ class ScannerList:
         self.manager: Manager = manager
         self.settings: ScannerSettings = settings
         self.manager.register_listener(
-            ManagerEvent.CLIENT_REGISTER, self.update_scanners
+            ui.context.client.id, ManagerEvent.CLIENT_REGISTER, self.update_scanners
         )
         self.manager.register_listener(
-            ManagerEvent.CLIENT_UNREGISTER, self.update_scanners
+            ui.context.client.id, ManagerEvent.CLIENT_UNREGISTER, self.update_scanners
         )
-        self.manager.register_listener(ManagerEvent.PKT_DATA_RECV, self.update_scanners)
         self.manager.register_listener(
-            ManagerEvent.PKT_DATA_RECV, self._update_plot_data
+            ui.context.client.id, ManagerEvent.PKT_DATA_RECV, self.update_scanners
+        )
+        self.manager.register_listener(
+            ui.context.client.id, ManagerEvent.PKT_DATA_RECV, self._update_plot_data
         )
 
         self.dialog = ScannerDialog(self.manager, settings, self.select_ap)
@@ -299,18 +301,20 @@ class ScannerList:
                     item.classes.append("opacity-70")
 
                 with item:
-                    ui.element().style(f"width: 10px; background-color:{self.scanner_colors[id]}").classes("mr-2")
+                    ui.element().style(
+                        f"width: 10px; background-color:{self.scanner_colors[id]}"
+                    ).classes("mr-2")
                     with ui.item_section():
                         ui.item_label(f"{id}").classes(f"font-bold text-lg p-2")
 
                         ui.item_label(
                             f"Average RSSI: {scanner.stats.average if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
                         ).props("caption")
-                        
+
                         ui.item_label(
                             f"Maximum RSSI: {scanner.stats.average if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
                         ).props("caption")
-                        
+
                         ui.item_label(
                             f"Minimum RSSI: {scanner.stats.average if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
                         ).props("caption")
@@ -320,7 +324,7 @@ class ScannerList:
                             "circle",
                             color=f"{self.scanner_state_colors[scanner.state]}",
                         )
-                        
+
                     state_desc = ""
                     match scanner.state:
                         case ScannerState.SCANNER_IDLE:
@@ -375,7 +379,7 @@ class ScannerList:
                 continue
 
             sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(id)
-            
+
             self.fig.update_traces(
                 x=ts_buf,
                 y=var_buf if self.data_type == 0 else sig_buf,
@@ -399,7 +403,9 @@ class ScannerList:
         self.saved_layout = None
         match data_type:
             case 0:
-                self.fig.update_yaxes(range=[0, consts.Y_VAR_MAX], visible=False, title=None)
+                self.fig.update_yaxes(
+                    range=[0, consts.Y_VAR_MAX], visible=False, title=None
+                )
                 # self.saved_layout = self.fig.layout
             case 1:
                 self.fig.update_yaxes(
@@ -429,7 +435,6 @@ class ScannerList:
         ap = e.args
         self._reset_data()
         self.cover_visibility = True
-        print(ap)
         self.manager.selected_ap_obj = ap
         await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(ap))
         self.dialog.dialog.close()
@@ -443,16 +448,9 @@ class ScannerList:
         for id in self.scanner_states.keys():
             self.manager.update_scanner_display_stats(id, add=False, reset=True)
         self.scanner_states.clear()
+        self.manager.selected_ap_obj = None
         await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_STOP)
         self._update_plot()
-
-    def unregister_cbs(self):
-        self.manager.remove_listener(ManagerEvent.CLIENT_REGISTER, self.update_scanners)
-        self.manager.remove_listener(
-            ManagerEvent.CLIENT_UNREGISTER, self.update_scanners
-        )
-        self.manager.remove_listener(ManagerEvent.PKT_DATA_RECV, self.update_scanners)
-        self.manager.remove_listener(ManagerEvent.PKT_DATA_RECV, self._update_plot_data)
 
 
 class GraphTab:
@@ -462,29 +460,38 @@ class GraphTab:
         self.scanners = ScannerList(manager, settings, dark)
 
     def tab(self):
-        # with ui.column().classes("w-full h-[calc(100vh-2rem)] grid grid-flow-row columns-2") as col:
         self.scanners.dialog.show_dialog()
-        # with ui.row(align_items="center").classes("w-[95%] h-full fixed-center justify-center flex-wrap w-full gap-4 p-4"):
+
         with (
             ui.card()
             .tight()
             .classes(
                 "w-full h-full col-span-6 md:col-span-5 row-span-2 md:row-span-1 relative"
             )
-            .props("flat bordered") as graph_card
+            .props("flat bordered")
         ):
             self.scanners.display_plot()
             with ui.row().classes("w-full justify-between p-2"):
                 ui.toggle(
                     {0: "Variance", 1: "RSSI"}, value=0, on_change=self.change_plot
                 ).set_value(self.scanners.data_type)
+
+                ap_label = ui.label().classes("text-xl")
+                ap_label.bind_text_from(
+                    self.manager,
+                    "selected_ap_obj",
+                    lambda ap: (
+                        f"Selected AP: {ap["ssid"]} ({ap["bssid"]})" if ap else ""
+                    ),
+                )
                 ui.button("Reset axes").on_click(self.scanners.reset_axes)
+
         with (
             ui.card()
             .classes(
                 "w-full h-full col-span-6 md:col-span-1 row-span-1 md:row-span-1 flat bordered"
             )
-            .props("flat bordered") as scan_card
+            .props("flat bordered")
         ):
             with ui.row().classes("w-full justify-between"):
                 ui.button(
@@ -497,16 +504,13 @@ class GraphTab:
                 ).props(
                     "flat"
                 )
+
             ui.separator()
             ui.label("Scanners").classes("text-bold")
             self.scanners.display_list()
 
     def change_plot(self, args: ValueChangeEventArguments):
         self.scanners.change_plot_type(args.value)
-
-    def unregister_cbs(self):
-        print("Unregister cbs")
-        self.scanners.unregister_cbs()
 
 
 class SettingsTab:
@@ -648,7 +652,6 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
         dark = ui.dark_mode(True)
         graph_tab = GraphTab(manager, settings, dark)
         settings_tab = SettingsTab(manager, settings)
-        app.on_disconnect(graph_tab.unregister_cbs)
         main = None
 
         def graph():
@@ -661,6 +664,15 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
             with main:
                 settings_tab.tab()
 
+        def shutdown():
+            print("shutdown")
+            with main:
+                with ui.dialog().classes() as dialog, ui.card().props("flat"):
+                    dialog.open()
+                    ui.label("Shutting down...").classes("text-2xl text-bold")
+                    ui.label("This tab can be closed.").classes("text-xl")
+            app.shutdown()
+                
         with ui.header().classes("h-[64px] justify-between bg-primary"):
             ui.label("RSSI analyzer").classes("text-lg md:text-3xl")
             ui.space()
@@ -669,6 +681,7 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
             with ui.button(icon="settings").on_click(settings):
                 ui.label("Settings").classes("max-sm:hidden")
             ui.space()
+            ui.button(icon="power_settings_new").classes("bg-red").on_click(shutdown)
             # ui.switch("Dark mode").props('keep-color').bind_value(dark)
 
         with ui.element().classes("flex flex-col h-[calc(100vh-128px)] w-full"):
@@ -716,6 +729,9 @@ async def start():
         manager = Manager(mqtt_client)
         task = asyncio.create_task(manager_work_loop(manager))
         create_ui(manager, mqtt_client)
+        def disconnect():
+            manager.remove_listeners(ui.context.client.id)
+        app.on_disconnect(disconnect)
     except:
         print("Startup failed")
         app.shutdown()
