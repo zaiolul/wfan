@@ -10,7 +10,7 @@ import asyncio
 import datetime
 import copy
 class MqttClient:
-    def __init__(self, config : str = consts.MQTT_CONF):
+    def __init__(self, config : str):
         self.queue = asyncio.Queue()
         self.mqtt_client = self._setup_mqtt_client(config)
         self._event_loop = asyncio.get_event_loop()
@@ -30,9 +30,11 @@ class MqttClient:
             self.queue.put(item=(msg.topic, msg.payload)), self._event_loop)
 
     def _setup_mqtt_client(self, config : str) -> mqtt.Client:
+        if config == "":
+            config = consts.MQTT_CONF
         conf = self._parse_mqtt_conf(config)
         if not conf:
-            exit(1)
+            raise Exception("MQTT config file not found or invalid")
         
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         client.will_set("cmd/all/stop", "", 0, False)
@@ -65,13 +67,13 @@ class MqttClient:
 
 class Manager:
     def __init__(self, client : MqttClient):
-        self.client = client
-        self.queue = self.client.queue 
+        self.client : MqttClient = client
+        self.queue : asyncio.Queue = self.client.queue 
         self.scanners : dict[str, ScannerClient] = dict()
         self.ap_counters : dict[WifiAp, int] = dict()
         self.common_aps : list[WifiAp] = list()
         self.selected_ap_obj : dict = None
-        self.state = State.IDLE
+        self.state = ManagerState.IDLE
         self.listeners = dict[ManagerEvent, list[callable]]()
 
         #these fetched by UI for display
@@ -105,7 +107,7 @@ class Manager:
             self.ts_bufs[id].extend(self.scanners[id].stats.ts_buf)
 
     def fetch_scanner_display_stats(self, id : str):
-        return (list(self.rssi_bufs[id]), list(self.var_bufs[id]), list(self.ts_bufs[id]))
+        return (list(self.rssi_bufs[id]), list(self.var_bufs[id]),list(self.ts_bufs[id]))
     
     #ok, so I cant really do iqr method, cause most of the time iqr = 0 in stable environment
     #need a better way than just comparing it like this
@@ -190,11 +192,11 @@ class Manager:
                 if all(c.finished_scan for c in self.scanners.values()):
                     print("All scanners finished scanning")
                     self.common_aps = [bssid for bssid, count in self.ap_counters.items() if count == len(self.scanners)]
-                    self.state = State.SELECTING
+                    self.state = ManagerState.SELECTING
                     self._call_listeners(ManagerEvent.AP_SELECT)
 
             case PayloadType.PKT_LIST:
-                self.state = State.SCANNING
+                self.state = ManagerState.SCANNING
                 self.scanners[id].state = ScannerState.SCANNER_SCANNING
                 self._update_scanner_stats(id, data)
                 self.update_scanner_display_stats(id)
@@ -227,13 +229,13 @@ class Manager:
                         scanner.state = ScannerState.SCANNER_IDLE
                         self.can_scan = True
                         self.client.mqtt_client.publish(topic_regack, None, 1)
-                        if self.state == State.SCANNING:
+                        if self.state == ManagerState.SCANNING:
                             self.client.mqtt_client.publish(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(self.selected_ap_obj))
                     else:
                         self.scanners[id].scanning = False
                         self.scanners.pop(id)
                         if len(self.scanners.keys()) == 0:
-                            self.state = State.IDLE
+                            self.state = ManagerState.IDLE
                             self.can_scan = False
 
                     self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
@@ -268,7 +270,7 @@ class Manager:
         print(f"Client {id} never recovered, clean")
         self.scanners.pop(id)
         if len(self.scanners) == 0:
-            self.state = State.IDLE
+            self.state = ManagerState.IDLE
         self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
 
     async def _message_handler(self, topic: str, payload: str):
@@ -287,7 +289,7 @@ class Manager:
         
     async def _common_aps_done(self):
         while True:
-            if self.state == State.SELECTING:
+            if self.state == ManagerState.SELECTING:
                 return True
             await asyncio.sleep(0.5)
 
@@ -299,7 +301,7 @@ class Manager:
             return False
 
     async def reset_scan_state(self):
-        self.state = State.IDLE
+        self.state = ManagerState.IDLE
 
     def register_listener(self, event: ManagerEvent, callback: callable):
         if event not in self.listeners:

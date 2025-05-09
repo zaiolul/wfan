@@ -42,7 +42,7 @@ class ScannerClient:
     state : ScannerState = ScannerState.SCANNER_IDLE
     outfile : str = None
 
-class State(enum.Enum):
+class ManagerState(enum.Enum):
     SCANNING = 0
     SELECTING = 1
     IDLE = 2

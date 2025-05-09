@@ -1,2 +1,3 @@
 band=0
-chans=11
+chans=1,8,9,10,11
+results_dir=/home/zaio/scan_results
