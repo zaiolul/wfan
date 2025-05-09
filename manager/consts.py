@@ -1,5 +1,5 @@
 MAX_CLIENTS = 8
-PKT_STATS_BUF_SIZE = 10
+PKT_STATS_BUF_SIZE = 30
 
 OUTPUT_DIR = "./scan_results"
 RES_FILE_EXT = ".csv"
@@ -54,7 +54,7 @@ SCAN_CRASH_WAIT = 15
 # Graph
 
 X_AXIS_SPAN = 100
-
+Y_VAR_MAX = 100
 #Other
 
 SETTINGS_FILE = "./settings.txt"

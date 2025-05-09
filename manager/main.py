@@ -212,7 +212,7 @@ class ScannerList:
             showlegend=False,
         )
 
-        self.fig.update_yaxes(range=[0, 200], visible=False)
+        self.fig.update_yaxes(range=[0, consts.Y_VAR_MAX], visible=False)
 
         self.plot: ui.plotly = None
         self.cover: ui.card = None
@@ -333,9 +333,7 @@ class ScannerList:
                         ui.label(f"{state_desc}")
                         if scanner.state == ScannerState.SCANNER_SCANNING:
                             ui.label(f"Average RSSI: {scanner.stats.average}\n")
-                    
-                # with ui.item().classes("bg-primary"):
-                #     pass
+
             self.scanner_list.update()
 
     def _on_scanner_select(self, e: ClickEventArguments, id):
@@ -356,9 +354,7 @@ class ScannerList:
             self.scanner_states[id] = True
 
         scanner = self.manager.scanners[id]
-        # self.rssi_bufs[id].extend(list(scanner.stats.signal_buf))
-        # self.var_bufs[id].extend(list(scanner.stats.variance_buf))
-        # self.ts_bufs[id].extend(list(scanner.stats.ts_buf))
+
         self.cover_visibility = False
         self._update_plot()
 
@@ -379,8 +375,7 @@ class ScannerList:
                 continue
 
             sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(id)
-
-            print("update traces")
+            
             self.fig.update_traces(
                 x=ts_buf,
                 y=var_buf if self.data_type == 0 else sig_buf,
@@ -395,7 +390,6 @@ class ScannerList:
                 self.fig.update_xaxes(range=[xaxis[-consts.X_AXIS_SPAN], xaxis[-1]])
 
         else:
-            print("Saved layout not null")
             self.fig.layout = self.saved_layout
 
         self.plot.update()
@@ -405,7 +399,7 @@ class ScannerList:
         self.saved_layout = None
         match data_type:
             case 0:
-                self.fig.update_yaxes(range=[0, 200], visible=False, title=None)
+                self.fig.update_yaxes(range=[0, consts.Y_VAR_MAX], visible=False, title=None)
                 # self.saved_layout = self.fig.layout
             case 1:
                 self.fig.update_yaxes(
