@@ -308,15 +308,15 @@ class ScannerList:
                         ui.item_label(f"{id}").classes(f"font-bold text-lg p-2")
 
                         ui.item_label(
-                            f"Average RSSI: {scanner.stats.average if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
+                            f"Average RSSI (dBm): {int(scanner.stats.average) if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
                         ).props("caption")
 
                         ui.item_label(
-                            f"Maximum RSSI: {scanner.stats.average if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
+                            f"Maximum RSSI (dBm): {int(scanner.stats.maximum) if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
                         ).props("caption")
 
                         ui.item_label(
-                            f"Minimum RSSI: {scanner.stats.average if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
+                            f"Minimum RSSI (dBm): {int(scanner.stats.minimum) if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
                         ).props("caption")
 
                     with ui.item_section().props("side"):

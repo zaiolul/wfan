@@ -51,7 +51,7 @@ class local_file_picker(ui.dialog):
             self.upper_limit = Path(directory if upper_limit == ... else upper_limit).expanduser()
         self.show_hidden_files = show_hidden_files
 
-        with self, ui.card().classes():
+        with self, ui.card():
             self.grid = ui.aggrid({
                 'columnDefs': [{'field': 'name', 'headerName': 'File'}],
                 'rowSelection': 'multiple' if multiple else 'single',

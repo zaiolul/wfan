@@ -5,7 +5,7 @@ import consts
 from data import *
 import json
 import os
-import numpy as np
+import math
 import asyncio
 import datetime
 import copy
@@ -81,7 +81,7 @@ class Manager:
         self.common_aps: list[WifiAp] = list()
         self.selected_ap_obj: dict = None
         self.state = ManagerState.IDLE
-        self.listeners : dict[str, dict[ManagerEvent, list[callable]]] = dict()
+        self.listeners: dict[str, dict[ManagerEvent, list[callable]]] = dict()
 
         # these fetched by UI for display
         self.rssi_bufs: dict[str, deque] = dict()
@@ -117,9 +117,9 @@ class Manager:
                 else list(self.scanners[id].stats.signal_buf)[-count:]
             )
             self.var_bufs[id].extend(
-                self.scanners[id].stats.variance_buf
+                self.scanners[id].stats.variance_disp_buf
                 if count == -1
-                else list(self.scanners[id].stats.variance_buf)[-count:]
+                else list(self.scanners[id].stats.variance_disp_buf)[-count:]
             )
             self.ts_bufs[id].extend(
                 self.scanners[id].stats.ts_buf
@@ -134,38 +134,18 @@ class Manager:
             list(self.ts_bufs[id]),
         )
 
-    # ok, so I cant really do iqr method, cause most of the time iqr = 0 in stable environment
-    # need a better way than just comparing it like this
     def _is_outlier(self, scanner: ScannerClient, entry: int) -> bool:
-        if scanner.stats.variance == 0:
-            return False
+        # variance can be 0 if RSSI is very stable (or the window is atleast, so Z score calc fails, assume
+        # there's always some variance in such case
+        var = max (scanner.stats.variance, 0.1)
+        z = (entry - scanner.stats.average) / math.sqrt(var)
 
-        z = (entry - scanner.stats.average) / np.sqrt(scanner.stats.variance)
-        check = abs(z) > 10
-        # if check:
-        print(f"scanner {scanner.id} entry {entry} with z = {z}")
-        return abs(z) > 10
+        print(f"scanner {scanner.id} entry {entry} avg {scanner.stats.average} (var {scanner.stats.variance}) with z = {z}")
+
+        return abs(z) > 5
 
     def _update_scanner_stats(self, id: str, data):
         client = self.scanners[id]
-        if not client.stats.done:
-            for item in data:
-                radio_obj = item["radio"]
-                ap_obj = item["ap"]
-                radio = RadioInfo(
-                    radio_obj["channel_freq"],
-                    radio_obj["antenna_signal"],
-                    radio_obj["noise"],
-                )
-                print(ap_obj)
-                client.stats.signal_buf.append(radio.signal)
-                # client.stats.ts_buf.append(ap_obj["timestamp"]) #dont need the object here tbh, might change for radio case as well
-
-            if len(client.stats.signal_buf) == consts.PKT_STATS_BUF_SIZE:
-                client.stats.done = True
-            else:
-                return len(data)
-
         for item in data:
             radio_obj = item["radio"]
             radio = RadioInfo(
@@ -176,34 +156,51 @@ class Manager:
             ap_obj = item["ap"]
 
             val = radio.signal
-            if self._is_outlier(client, radio.signal):
-                val = client.stats.average
+
+            # so I saw massive spikes sometimes, better remove it as it's not caused by atennuation methinks
+            if client.stats.done and self._is_outlier(client, radio.signal):
+                val = int(client.stats.average)
+
+            if client.stats.maximum < val or client.stats.maximum == 0:
+                client.stats.maximum = val
+            if client.stats.minimum > val:
+                client.stats.minimum = val
 
             client.stats.signal_buf.append(val)
             client.stats.ts_buf.append(
                 datetime.datetime.fromtimestamp(int(ap_obj["timestamp"]) / 1000)
             )
-            avg = np.average(client.stats.signal_buf)
+
+            avg = sum(client.stats.signal_buf) / len(client.stats.signal_buf)
             client.stats.average = avg
 
+            # single point variance
             var = (val - avg) ** 2
-            client.stats.variance_tmp_buf.append(var)
-            var_sum = sum(client.stats.variance_tmp_buf)
-            tmp_var = var_sum / len(client.stats.variance_tmp_buf)
-            client.stats.variance = tmp_var if tmp_var > 0.01 else 0
 
-            var_sum = int(var_sum / 250 * 100)
+            
+            # "smooth" out using prev variance values
+            client.stats.variance_calc_buf.append(var)
+            client.stats.variance = sum(client.stats.variance_calc_buf) / len(client.stats.variance_calc_buf)
+            
+            # take last 5 variance values to "smooth" change over time
+            var_sum = sum(list(client.stats.variance_calc_buf)[-5:])
+            
+            # just clamp value if its too extreme, don't really care about the value itself
             if var_sum > consts.Y_VAR_MAX:
                 var_sum = consts.Y_VAR_MAX
-            client.stats.variance_buf.append(var_sum)
-
+            client.stats.variance_disp_buf.append(var_sum)
+            
+            
+            
+            if len(client.stats.signal_buf) == consts.PKT_STATS_BUF_SIZE:
+                client.stats.done = True
         return len(data)
 
     async def _write_pkt_data(self, scanner: ScannerClient):
         f = None
         if not scanner.outfile:
             return
-        print(scanner.outfile)
+
         exists = os.path.exists(scanner.outfile)
         f = open(scanner.outfile, "a")
         if not exists:
@@ -212,7 +209,7 @@ class Manager:
                 f"{self.selected_ap_obj["ssid"]};{self.selected_ap_obj["bssid"]};{self.selected_ap_obj["channel"]}\n"
             )
         signals = list(scanner.stats.signal_buf)
-        variances = list(scanner.stats.variance_buf)
+        variances = list(scanner.stats.variance_disp_buf)
         timestamps = list(scanner.stats.ts_buf)
 
         for i in range(len(signals)):
@@ -227,7 +224,11 @@ class Manager:
         match PayloadType(json_data["type"]):
             case PayloadType.AP_LIST:
                 for item in data:
-                    ap = WifiAp(item["ssid"] if item["ssid"] != "" else "<HIDDEN>", item["bssid"], item["channel"])
+                    ap = WifiAp(
+                        item["ssid"] if item["ssid"] != "" else "<HIDDEN>",
+                        item["bssid"],
+                        item["channel"],
+                    )
                     self.scanners[id].ap_list.append(ap)
                     if ap not in self.ap_counters:
                         self.ap_counters[ap] = 1
@@ -296,11 +297,11 @@ class Manager:
                 self.scanners[id].stats.signal_buf = deque(
                     maxlen=consts.PKT_STATS_BUF_SIZE
                 )
-                self.scanners[id].stats.variance_buf = deque(
+                self.scanners[id].stats.variance_calc_buf = deque(
                     maxlen=consts.PKT_STATS_BUF_SIZE
                 )
-                self.scanners[id].stats.variance_tmp_buf = deque(
-                    maxlen=7
+                self.scanners[id].stats.variance_disp_buf = deque(
+                    maxlen=consts.PKT_STATS_BUF_SIZE
                 )  # adjust for "smoothness"
                 self.scanners[id].stats.ts_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
 
@@ -365,29 +366,27 @@ class Manager:
     async def reset_scan_state(self):
         self.state = ManagerState.IDLE
 
-    def register_listener(self, id : str, event: ManagerEvent, callback: callable):
+    def register_listener(self, id: str, event: ManagerEvent, callback: callable):
         if id not in self.listeners.keys():
             self.listeners[id] = dict()
-            
+
         if event not in self.listeners[id].keys():
-            self.listeners[id] = {
-                event: [callback]
-            }
-        else: 
+            self.listeners[id] = {event: [callback]}
+        else:
             self.listeners[id][event].append(callback)
 
     def _call_listeners(self, event: ManagerEvent, args=None):
         for id, cbs in self.listeners.items():
             if event not in cbs.keys():
                 continue
-            
+
             for callback in cbs[event]:
                 callback(args)
-                
+
     def remove_listeners(self, id: str):
         if id in self.listeners.keys():
             self.listeners.pop(id)
-            
+
     async def mqtt_send(self, topic: str, payload: str = None, qos: int = 1):
         # clean up for upcoming states
         self.common_aps.clear()
