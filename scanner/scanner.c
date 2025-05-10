@@ -8,14 +8,23 @@ struct threads_shared shared = {0};
 
 void sig_handler(int signal)
 {
+    topic_t reg_topic = {0, 1};
+    payload_t empty = {0};
+
+    pthread_mutex_lock(&shared.lock);
+    sprintf(reg_topic.name, "%s/%s", SCANNER_PUB_CMD_REGISTER, ctx->client_id);
     switch (signal)
     {
     case SIGINT:
+        printf("%s(): stop\n", __func__);
+        cap_stop();
+        mqtt_publish_topic(reg_topic, empty);
         shared.stop = 1;
         break;
     default:
         break;
     }
+    pthread_mutex_unlock(&shared.lock);
 }
 
 void parse_args(int argc, char *argv[])
@@ -175,6 +184,7 @@ int try_register()
         pthread_mutex_lock(&shared.lock);
         if (shared.stop)
         {
+            printf("Stop main thread\n");
             pthread_mutex_unlock(&shared.lock);
             break;
         }

@@ -566,6 +566,14 @@ void cap_set_ap(struct wifi_ap_info *ap)
     cap_override_state(STATE_PKT_CAP);
 }
 
+void cap_stop()
+{
+    if (!ctx)
+        return;
+
+    cap_override_state(STATE_END);
+}
+
 int cap_start_capture(struct capture_ctx *cap_ctx, char *dev, cap_send_cb cb)
 {
     if (!cap_ctx) 
