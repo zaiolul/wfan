@@ -48,14 +48,16 @@ class local_file_picker(ui.dialog):
         if upper_limit is None:
             self.upper_limit = None
         else:
-            self.upper_limit = Path(directory if upper_limit == ... else upper_limit).expanduser()
+            self.upper_limit = Path(
+                directory if upper_limit == ... else upper_limit).expanduser()
         self.show_hidden_files = show_hidden_files
 
-        with self, ui.card():
+        with self, ui.card().classes("w-full h-1/2").props("flat"):
             self.grid = ui.aggrid({
-                'columnDefs': [{'field': 'name', 'headerName': 'File'}],
+                'columnDefs': [{'field': 'name', 'headerName': 'File', 'filter': 'agTextColumnFilter', 'cellClass': 'text-lg', 'headerClass': 'text-lg'}],
                 'rowSelection': 'multiple' if multiple else 'single',
-            }, html_columns=[0]).classes('w-96').on('cellDoubleClicked', self.handle_double_click)
+            }, html_columns=[0]).on('cellDoubleClicked', self.handle_double_click)
+            self.grid.classes("ag-theme-material-dark h-full")
             with ui.row().classes('w-full justify-end'):
                 ui.button('Cancel', on_click=self.close).props('outline')
                 ui.button('Ok', on_click=self._handle_ok)
