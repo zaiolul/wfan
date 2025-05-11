@@ -92,22 +92,19 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
 
     if (!strcmp(cmd, CMD_STOP))
     {
-        printf("GOT CMD STOP\n");
-        ctx->registered = 0;
         memset(&ctx->selected_ap, 0, sizeof(struct wifi_ap_info));
-        cap_override_state(STATE_END);
+        cap_override_state(STATE_IDLE);
     }
     else if (!strcmp(cmd, CMD_SCAN))
     {
+        printf("Received SCAN command\n");
         if (!ctx->registered)
             return;
-        printf("DO SCAN\n");
         json = cJSON_Parse(data);
         arr = cJSON_GetObjectItem(json, "channels");
 
         cJSON_ArrayForEach(obj, arr)
         {
-            printf("receive chan: %d\n", obj->valueint);
             if (obj->valueint > 0 && obj->valueint < 14)
                 chans[chan_count++] = obj->valueint;
         }
@@ -117,7 +114,7 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
     }
     else if (!strcmp(cmd, CMD_SELECT_AP))
     {
-        printf("DO AP SELECT\n");
+        printf("Set AP\n");
         json = cJSON_Parse(data);
         printf("%s\n", cJSON_Print(json));
         strncpy(bssid_str, cJSON_GetObjectItem(json, "bssid")->valuestring,
@@ -132,6 +129,12 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
 
         memcpy(&ctx->selected_ap, &ap, sizeof(struct wifi_ap_info)); // hold on to it
     }
+    else if(!strcmp(cmd, CMD_END))
+    {
+        cap_stop();
+        ctx->registered = 0;
+    }
+
     cJSON_free(json);
 }
 

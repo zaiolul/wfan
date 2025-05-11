@@ -46,7 +46,7 @@ class MqttClient:
             raise Exception("MQTT config file not found or invalid")
 
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        client.will_set("cmd/all/stop", "", 0, False)
+        client.will_set(consts.MANAGER_PUB_CMD_END, "", 0, False)
         client.on_connect = self._on_connect
         client.on_message = self._on_message
         client.username_pw_set(conf["USERNAME"], conf["PASSWORD"])

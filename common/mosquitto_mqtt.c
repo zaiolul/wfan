@@ -259,7 +259,9 @@ static void mqtt_loop()
         pthread_mutex_lock(&shared.lock);
         if (shared.stop)
         {
+            printf("Stop MQTT thread\n");
             pthread_mutex_unlock(&shared.lock);
+            break;
         }
         pthread_mutex_unlock(&shared.lock);
 
