@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 from nicegui import ui, app, run, events
-from collections import deque
 from nicegui.events import (
     ValueChangeEventArguments,
     GenericEventArguments,
     ClickEventArguments,
 )
 import asyncio
-from data import WifiAp, ManagerState, ManagerEvent, ScannerState
+from data import ManagerState, ScannerState
 import plotly.graph_objects as go
 import plotly.colors as plot_cl
 from mgr import Manager, MqttClient
@@ -16,7 +15,6 @@ import json
 from file_picker import local_file_picker
 import os
 from typing import Callable, Awaitable
-import time
 import sys
 
 # used with ui.timer, define callbacks for ui updates
@@ -50,6 +48,8 @@ class ScannerSettings:
         self.selected_chans: list[int] = self.chans_24
         self.selected_dir: str = path
         self.selected_band: int = band
+        self.mqtt_ip: str = "127.0.0.1"
+        self.mqtt_port: int = 1883
 
     def import_options(self):
         band = None
@@ -78,6 +78,10 @@ class ScannerSettings:
                             chans.append(int(chan))
                     case "results_dir":
                         results_dir = parts[1].rstrip()
+                    case "mqtt_ip":
+                        self.mqtt_ip = parts[1].rstrip()
+                    case "mqtt_port":
+                        self.mqtt_port = int(parts[1].rstrip())
             except:
                 print("Invalid settings config, use defaults")
                 return
@@ -96,6 +100,8 @@ class ScannerSettings:
             f.write(f"chans={",".join(chans)}\n")
             if self.selected_dir:
                 f.write(f"results_dir={self.selected_dir}\n")
+            f.write(f"mqtt_ip={self.mqtt_ip}\n")
+            f.write(f"mqtt_port={self.mqtt_port}\n")
         ui.notify("Settings saved.")
 
 
@@ -165,12 +171,14 @@ class ScannerDialog(ui.dialog):
             for ap in self.manager.common_aps
         ]
         columns = [
-            {"name": "channel", "label": "SSID", "field": "ssid", "sortable" : True},
-            {"name": "bssid", "label": "BSSID", "field": "bssid", "sortable" : True}, #, "classes" : "blur-sm hover:blur-none"},
-            {"name": "channel", "label": "Channel", "field": "channel", "sortable" : True},
+            {"name": "channel", "label": "SSID",
+                "field": "ssid", "sortable": True},
+            # , "classes" : "blur-sm hover:blur-none"},
+            {"name": "bssid", "label": "BSSID", "field": "bssid", "sortable": True},
+            {"name": "channel", "label": "Channel",
+                "field": "channel", "sortable": True},
         ]
         rows.sort(key=lambda x: x["channel"])
-
 
         table = ui.table(
             rows=rows,
@@ -602,10 +610,23 @@ class SettingsTab:
         self.selected_dir: str = ""
         self.dir_label: ui.label = None
 
+        self.changes_made = False
+        
+        self.mqtt_status: bool
+        self.mqtt_status_label: ui.label = None
+
+        self.status_colors = {
+            False: "red-8",
+            True: "green-8"
+        }
+
         if os.path.exists(consts.SETTINGS_FILE):
             settings.import_options()
-
+            
+        ui.timer(60.0, self._check_mqtt_conn)
+        
     def tab(self):
+        self.changes_made = False
         self.settings.import_options()  # HACK, ADD ADDITIONAL CHECKS TO NOT OVERRIDE LOCAL
         with (
             ui.card()
@@ -631,7 +652,7 @@ class SettingsTab:
                         ).tooltip("Scanned bandwidth")
                         self.el_toggle.disable()
                         with self.el_toggle:
-                            ui.tooltip("Wi-Fi radio bandwidth for scanning.").classes(
+                            ui.tooltip("Wi-Fi radio bandwidth for scanning. (prototype version only has 2.4 GHz)").classes(
                                 "text-lg"
                             )
 
@@ -680,11 +701,82 @@ class SettingsTab:
                         self.settings, "selected_dir", backward=lambda d: len(d) != 0
                     )
 
+            ui.separator()
+            with ui.row().classes("w-full"):
+                ui.label("MQTT broker connection").classes("text-3xl")
+                with ui.column().classes("w-full md:w-1/2 shrink-0"):
+                    self.mqtt_ip = ui.input("Broker IP", value=self.settings.mqtt_ip, validation={
+                        "Not a valid IPv4 address": self._validate_ip
+                    }, on_change=self._on_mqtt_host_change)
+
+                    self.mqtt_port = ui.input("Port", value=self.settings.mqtt_port, validation={
+                        "Not a valid port (0-65535)": self._validate_port
+                    }, on_change=self._on_mqtt_port_change)
+
+                with ui.column().classes("w-full md:w-1/3"):
+                    ui.label("Connection status:").classes("text-lg")
+                    self.mqtt_status_label = ui.label().classes("text-bold")
+                    self._update_mqtt_status()
+                    REGISTER_TIMER_CALLBACK(
+                        ui.context.client.id, self._update_mqtt_status)
+
+    async def _check_mqtt_conn(self):
+        if not self.manager.client.get_status():
+            await self._conn_mqtt()
+
+    async def _conn_mqtt(self):
+        def func():
+            self.manager.client.try_connect(
+                self.settings.mqtt_ip, self.settings.mqtt_port, "manager", "manager"
+                )
+
+        await run.io_bound(func)
+           
+
+    def _on_mqtt_host_change(self, e: ValueChangeEventArguments):
+        self.settings.mqtt_ip = e.value
+        self.changes_made = True
+
+    def _on_mqtt_port_change(self, e: ValueChangeEventArguments):
+        self.settings.mqtt_port = e.value
+        self.changes_made = True
+
+    def _validate_ip(self, value: str) -> bool:
+        from ipaddress import ip_address
+        try:
+            if len(value) == 0:
+                return False
+            ip_address(value)
+            return True
+        except ValueError:
+            return False
+
+    def _validate_port(self, value: str) -> bool:
+        try:
+            port = int(value)
+            if 0 < port < 65536:
+                return True
+        except ValueError:
+            return False
+
+    def _update_mqtt_status(self):
+        self.mqtt_status = self.manager.client.get_status()
+        self.mqtt_status_label.set_text(
+            "Connected" if self.mqtt_status else "Disconnected")
+        self.mqtt_status_label.classes.clear()
+        self.mqtt_status_label.classes(
+            f"text-{self.status_colors[self.mqtt_status]} text-lg")
+        print(str(self.mqtt_status))
+        self.mqtt_status_label.update()
+
     def _clear_dir(self):
         self.settings.selected_dir = ""
+        self.changes_made = True
 
     async def _on_save(self):
+        self.changes_made = False
         await self.settings.save_options()
+        await self._conn_mqtt()
         self.manager.update_results_path(self.settings.selected_dir)
 
     async def _select_file_path(self):
@@ -693,13 +785,15 @@ class SettingsTab:
             return
         self.settings.selected_dir = dirs[0]
         self.dir_label.set_text(self.selected_dir)
+        self.changes_made = True
 
-    def _validate_select(self, val):
+    def _validate_select(self, val) -> bool:
         print("validate")
         return len(val) > 0
 
     def _update_selected_chans(self, e: ValueChangeEventArguments):
-        print("update")
+        self.mqtt_status = self.manager.client.get_status()
+        
         vals = e.value
         self.el_select.validate()
         if len(vals) == 0:
@@ -708,6 +802,7 @@ class SettingsTab:
         self.el_select.value = vals
         self.settings.selected_chans = vals
         self.el_select.update()
+        self.changes_made = True
 
     def update_band(self, e: ValueChangeEventArguments):
         self.settings.selected_band = e.value
@@ -725,10 +820,22 @@ class SettingsTab:
         self.el_select.update()
 
 
-def create_ui(manager: Manager, mqtt_client: MqttClient):
+class ConfirmDialog(ui.dialog):
+    def __init__(self, title: str):
+        super().__init__()
+        with self, ui.card().props("flat"):
+            ui.label(title).classes("text-2xl text-bold")
+            with ui.row().classes("w-full justify-end"):
+                ui.button("Yes", on_click=lambda: self.submit(True))
+                ui.button("No", on_click=lambda: self.submit(False)).props(
+                    "outline"
+                )
+
+        
+async def create_ui(manager: Manager, mqtt_client: MqttClient):
 
     @ui.page("/")
-    def MainPage():
+    async def MainPage():
         settings = ScannerSettings(0, "")
         dark = ui.dark_mode(True)
         graph_tab = GraphTab(manager, settings, dark)
@@ -748,31 +855,29 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
                 "flex-grow grid grid-cols-6 md:grid-rows-1 grid-rows-3 justify-items-center"
             )
 
-        def graph():
+        async def graph():
+            if settings_tab.changes_made:
+                res = await ConfirmDialog("Changes have been made, exit without saving?")
+                if not res:
+                    return
+            
             main.clear()
             with main:
                 graph_tab.tab()
 
-        def settings():
+        async def settings():
+           
             main.clear()
             with main:
                 settings_tab.tab()
 
         async def shutdown():
             with main:
-                with ui.dialog() as dialog, ui.card().props("flat"):
-                    ui.label("Confirm shutdown").classes("text-2xl text-bold")
-                    with ui.row().classes("w-full justify-end"):
-                        ui.button("Yes", on_click=lambda: dialog.submit(True))
-                        ui.button("No", on_click=lambda: dialog.submit(False)).props(
-                            "outline"
-                        )
-
-            res = await dialog
-            dialog.clear()
+                res = await ConfirmDialog("Shut down?")
+                
             if res:
                 with main:
-                    with dialog, ui.card().props("flat"):
+                    with ui.dialog() as dialog, ui.card().props("flat"):
 
                         dialog.open()
                         ui.label("Shutting down...").classes(
@@ -828,7 +933,7 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
             """
                          )
 
-        graph()
+        await graph()
 
 
 async def manager_work_loop(manager: Manager):
@@ -838,19 +943,15 @@ async def manager_work_loop(manager: Manager):
 
 async def start():
     try:
-        arg1 = ""
-        if len(sys.argv) == 2:
-            arg1 = sys.argv[1]
-        mqtt_client = MqttClient(arg1)
+        mqtt_client = MqttClient()
         manager = Manager(mqtt_client)
         task = asyncio.create_task(manager_work_loop(manager))
 
         TIMER_CBS.clear()
-        create_ui(manager, mqtt_client)
+        await create_ui(manager, mqtt_client)
 
         def disconnect():
             UNREGISTER_ID_CALLBACK(ui.context.client.id, manager)
-            # manager.remove_listeners(ui.context.client.id)
 
         app.on_disconnect(disconnect)
     except:

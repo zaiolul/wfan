@@ -12,16 +12,15 @@ import copy
 
 
 class MqttClient:
-    def __init__(self, config: str):
+    def __init__(self):
         self.queue = asyncio.Queue()
-        self.mqtt_client = self._setup_mqtt_client(config)
+        self.mqtt_client = self._setup_mqtt_client()
         self._event_loop = asyncio.get_event_loop()
-        self.mqtt_client.loop_start()
 
     def _on_connect(
         self, client: mqtt.Client, userdata, flags: any, rc: int, properties: any = None
     ):
-        print("Connected with result code " + str(rc))
+        print("Connected to MQTT broker with result code")
         client.subscribe(
             [
                 (consts.MANAGER_SUB_DATA, 1),
@@ -38,25 +37,40 @@ class MqttClient:
             self.queue.put(item=(msg.topic, msg.payload)), self._event_loop
         )
 
-    def _setup_mqtt_client(self, config: str) -> mqtt.Client:
-        if config == "":
-            config = consts.MQTT_CONF
-        conf = self._parse_mqtt_conf(config)
-        if not conf:
-            raise Exception("MQTT config file not found or invalid")
+    def _on_disconnect(
+        self, client: mqtt.Client, userdata, flags: any, rc: int, properties: any = None
+    ):
+        client.publish(consts.MANAGER_PUB_CMD_END, None, 1)
+        print("Disconnected from MQTT broker")
 
+    def try_connect(self, host: str, port: int, username: str, password: str):
+        try:
+            if self.mqtt_client.is_connected():
+                self.mqtt_client.disconnect()
+                self.mqtt_client.loop_stop()
+
+            self.mqtt_client.username_pw_set(username, password)
+            self.mqtt_client.connect(host, port, 10)
+            self.mqtt_client.loop_start()
+        except:
+            print("Failed to connect to MQTT broker")
+
+    def get_status(self):
+        return self.mqtt_client.is_connected()
+
+    def _setup_mqtt_client(self) -> mqtt.Client:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         client.will_set(consts.MANAGER_PUB_CMD_END, "", 0, False)
         client.on_connect = self._on_connect
         client.on_message = self._on_message
-        client.username_pw_set(conf["USERNAME"], conf["PASSWORD"])
-        host = conf["HOST"]
-        client.connect(conf["HOST"], int(conf["PORT"]), 60)
+        client.on_disconnect = self._on_disconnect
+
         return client
 
     def _parse_mqtt_conf(self, path: str) -> dict[str, str]:
         f = None
-        config = {"HOST": None, "USERNAME": None, "PORT": None, "PASSWORD": None}
+        config = {"HOST": None, "USERNAME": None,
+                  "PORT": None, "PASSWORD": None}
         try:
             f = open(path, "r")
             for line in f:
@@ -167,7 +181,8 @@ class Manager:
 
             client.stats.signal_buf.append(val)
             client.stats.ts_buf.append(
-                datetime.datetime.fromtimestamp(int(ap_obj["timestamp"]) / 1000)
+                datetime.datetime.fromtimestamp(
+                    int(ap_obj["timestamp"]) / 1000)
             )
 
             avg = sum(client.stats.signal_buf) / len(client.stats.signal_buf)
@@ -242,7 +257,6 @@ class Manager:
                         if count == len(self.scanners)
                     ]
                     self.state = ManagerState.SELECTING
-                    # self._call_listeners(ManagerEvent.AP_SELECT)
 
             case PayloadType.PKT_LIST:
                 self.state = ManagerState.SCANNING
@@ -250,13 +264,10 @@ class Manager:
                 count = self._update_scanner_stats(id, data)
                 self.update_scanner_display_stats(id, count=count)
 
-                # if self.scanners[id].stats.done:
-                # self._call_listeners(ManagerEvent.PKT_DATA_RECV, id)
                 await self._write_pkt_data(copy.deepcopy(self.scanners[id]))
 
     def _handle_client_crash(self, id: str):
         self.scanners.pop(id)
-        # self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
 
     def _handle_cmd(self, cmd: str, id: str):
         if len(id) == 0:
@@ -288,7 +299,6 @@ class Manager:
                         if len(self.scanners.keys()) == 0:
                             self.state = ManagerState.IDLE
                             self.can_scan = False
-                    # self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
                     return
 
                 self.scanners[id] = ScannerClient(id)
@@ -301,11 +311,11 @@ class Manager:
                 self.scanners[id].stats.variance_disp_buf = deque(
                     maxlen=consts.PKT_STATS_BUF_SIZE
                 )  # adjust for "smoothness"
-                self.scanners[id].stats.ts_buf = deque(maxlen=consts.PKT_STATS_BUF_SIZE)
+                self.scanners[id].stats.ts_buf = deque(
+                    maxlen=consts.PKT_STATS_BUF_SIZE)
 
                 self.client.mqtt_client.publish(topic_regack, None, 1)
                 self.update_scanner_display_stats(id, reset=True, add=False)
-                # self._call_listeners(ManagerEvent.CLIENT_REGISTER)
 
             case consts.CMD_CRASH:
                 print(f"Crashing {id}")
@@ -321,7 +331,6 @@ class Manager:
                     for s in self.scanners.values()
                 ):
                     self.can_scan = False
-                # self._call_listeners(ManagerEvent.CLIENT_REGISTER)
             case consts.CMD_READY:
                 print(f"{id} READY")
                 self.can_scan = True
@@ -332,7 +341,6 @@ class Manager:
         self.scanners.pop(id)
         if len(self.scanners) == 0:
             self.state = ManagerState.IDLE
-        # self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
 
     async def _message_handler(self, topic: str, payload: str):
         topic_parts = topic.split("/")
@@ -364,29 +372,9 @@ class Manager:
     async def reset_scan_state(self):
         self.state = ManagerState.IDLE
 
-    # def register_listener(self, id: str, event: ManagerEvent, callback: callable):
-    #     if id not in self.listeners.keys():
-    #         self.listeners[id] = dict()
-
-    #     if event not in self.listeners[id].keys():
-    #         self.listeners[id] = {event: [callback]}
-    #     else:
-    #         self.listeners[id][event].append(callback)
-
-    # def _call_listeners(self, event: ManagerEvent, args=None):
-    #     for id, cbs in self.listeners.items():
-    #         if event not in cbs.keys():
-    #             continue
-
-    #         for callback in cbs[event]:
-    #             callback(args)
-
-    # def remove_listeners(self, id: str):
-    #     if id in self.listeners.keys():
-    #         self.listeners.pop(id)
     def do_capture_start(self):
         self.update_scanner_display_stats("", reset=True, add=False)
-            
+
     def do_capture_stop(self):
         for id, scanner in self.scanners.items():
             scanner.state = ScannerState.SCANNER_IDLE
