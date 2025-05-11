@@ -19,6 +19,29 @@ from typing import Callable, Awaitable
 import time
 import sys
 
+# used with ui.timer, define callbacks for ui updates
+# id: nicegui context id, list: list of callbacks
+TIMER_CBS = dict[str, list[Callable]]()
+
+
+def REGISTER_TIMER_CALLBACK(id: str, cb: Callable):
+    if id not in TIMER_CBS:
+        TIMER_CBS[id] = []
+
+    # overwrite old callback, noticed some problems if functions are weirdly defined
+    # inside other funcs (see _update_state), as it would call "older version" of the function
+    # probably cause this code is absolute trash :/
+    for i, ex in enumerate(TIMER_CBS[id]):
+        if ex.__name__ == cb.__name__:
+            del TIMER_CBS[id][i]
+            break
+
+    TIMER_CBS[id].append(cb)
+
+
+def UNREGISTER_ID_CALLBACK(id: str, cb: Callable):
+    del TIMER_CBS[id]
+
 
 class ScannerSettings:
     def __init__(self, band, path):
@@ -76,130 +99,131 @@ class ScannerSettings:
         ui.notify("Settings saved.")
 
 
-class ScannerDialog:
+class ScannerDialog(ui.dialog):
     def __init__(
         self,
         manager: Manager,
         settings: ScannerSettings,
         on_select_ap: Callable[[], Awaitable[None]],
     ):
+        super().__init__()
         self.manager: Manager = manager
         self.settings: ScannerSettings = settings
-        self.select_ap = on_select_ap
+        self.on_select_ap = on_select_ap
         self.dialog: ui.Dialog = None
-        self.scan_task = None
 
-    def _on_dialog_hide(self):
-        self.manager.reset_scan_state
+        self.scan_task = asyncio.create_task(self.start_scan())
+        self.on("hide", self._on_close)
+
+    def _on_close(self):
         if self.scan_task:
             self.scan_task.cancel()
+        self.submit(None)
 
-    def start_scan(self):
-        self.dialog = ui.dialog()
-        self.dialog.on("hide", self._on_dialog_hide)
-        self.scan_task = asyncio.create_task(self._start_scan())
+    async def _select_ap(self, e: events.GenericEventArguments):
+        ap = e.args
+        self.on_select_ap()
+        ap["bssid"] = ap["bssid"].lower()
+        self.manager.selected_ap_obj = ap
+        self.manager.do_capture_start()
+        await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(ap))
+        self.submit(True)
+
+    async def start_scan(self):
+        # self.dialog = ui.dialog()
+        with self, ui.card().classes("max-h-2/3").style("max-width: none").props("flat bordered"):
+            with ui.row().classes("w-full justify-between"):
+                ui.label("Select AP").classes("text-2xl ")
+                ui.button("Close", on_click=self._on_close).props("flat")
+                ui.separator()
+            with ui.row().classes("w-full overflow-y-auto justify-center items-center"):
+                await self._start_scan()
 
     async def _start_scan(self):
-        self.dialog.clear()
         self.manager.state = ManagerState.IDLE
         await self.manager.mqtt_send(
             consts.MANAGER_PUB_CMD_SCAN,
             json.dumps({"channels": self.settings.selected_chans}),
         )
-        with self.dialog, ui.card().classes("items-center").props("flat"):
-            spinner = ui.spinner(size="lg")
 
-        self.dialog.open()
-
+        spinner = ui.spinner(size="lg")
         res = await self.manager.common_aps_done(timeout=15)
-        self.dialog.clear()
 
         if res:
             self._get_data()
         else:
-            with self.dialog, ui.card().classes("items-center").props("flat"):
-                ui.label("Scan timeout").classes("text-lg p-4")
+            ui.label("Scan timeout").classes("text-bold text-lg p-4")
+            ui.label(
+                "Did not receive any response from scanners, ensure they are online and try again."
+            ).classes("text-lg p-4")
         spinner.visible = False
 
     def _get_data(self, args=None):
-        if not self.dialog:
-            return  # ??????
 
-        self.dialog.clear()
-        with (
-            self.dialog,
-            ui.card().tight().classes("h-full md:h-1/2").props("flat bordered"),
-        ):
-            with ui.column():
-                ui.label("Select AP").classes("text-2xl p-4")
-            with ui.column().classes("overflow-y-auto"):
-                rows = [
-                    {"ssid": ap.ssid, "bssid": ap.bssid, "channel": ap.channel}
-                    for ap in self.manager.common_aps
-                ]
-                table = ui.table(
-                    rows=rows,
-                    row_key="ssid",
-                    column_defaults={
-                        "align": "left",
-                        "headerClasses": "uppercase text-primary text-lg font-bold",
-                    },
-                ).classes("w-full")
+        rows = [
+            {"ssid": ap.ssid, "bssid": ap.bssid.upper(), "channel": ap.channel}
+            for ap in self.manager.common_aps
+        ]
+        columns = [
+            {"name": "channel", "label": "SSID", "field": "ssid", "sortable" : True},
+            {"name": "bssid", "label": "BSSID", "field": "bssid", "sortable" : True}, #, "classes" : "blur-sm hover:blur-none"},
+            {"name": "channel", "label": "Channel", "field": "channel", "sortable" : True},
+        ]
+        rows.sort(key=lambda x: x["channel"])
 
-                # Below is needed for the button in each table row. Really no better way to do it?
-                table.add_slot(
-                    "header",
-                    r"""
-                    <q-tr :props="props">
-                        <q-th v-for="col in props.cols" :key="col.name" :props="props">
-                            {{ col.label }}
-                        </q-th>
-                        <q-th auto-width />
-                    </q-tr>
-                """,
-                )
 
-                table.add_slot(
-                    "body",
-                    r"""
-                    <q-tr :props="props">
-                        <q-td v-for="col in props.cols" :key="col.name" :props="props">
-                            {{ col.value }}
-                        </q-td>
-                        <q-td auto-width>
-                            <q-btn color="primary" @click="$parent.$emit('select_ap', props.row)">
-                                Select AP
-                            </q-btn>
-                        </q-td>
-                    </q-tr>
-                """,
-                )
-                table.on("select_ap", self.select_ap)
-                ui.on("select_ap", lambda: print("GOT AP EVNT"))
-        self.dialog.open()
+        table = ui.table(
+            rows=rows,
+            columns=columns,
+            row_key="bssid",
+            column_defaults={
+                "align": "left",
+            }
+        ).classes("w-full text-lg")
 
-    def show_dialog(self):
-        self.dialog = ui.dialog().classes("w-full")
+        # Below is needed for the button in each table row. Really no better way to do it?
+        table.add_slot(
+            "header",
+            r"""
+            <q-tr :props="props">
+                <q-th v-for="col in props.cols" :key="col.name" :props="props">
+                    {{ col.label }}
+                </q-th>
+                <q-th auto-width />
+            </q-tr>
+        """,
+        )
+
+        table.add_slot(
+            "body",
+            r"""
+            <q-tr :props="props">
+                <q-td v-for="col in props.cols" :key="col.name" :props="props">
+                    {{ col.value }}
+                </q-td>
+                <q-td auto-width>
+                    <q-btn color="primary" @click="$parent.$emit('select_ap', props.row)">
+                        Select AP
+                    </q-btn>
+                </q-td>
+            </q-tr>
+        """,
+        )
+        table.add_slot('body-cell-bssid', '''
+            <q-td key="bssid" :props="props">
+                <q-badge :color="green">
+                    {{ props.value }}
+                </q-badge>
+            </q-td>
+        ''')
+        table.on("select_ap", self._select_ap)
 
 
 class ScannerList:
     def __init__(self, manager: Manager, settings: ScannerSettings, dark):
         self.manager: Manager = manager
         self.settings: ScannerSettings = settings
-        self.manager.register_listener(
-            ui.context.client.id, ManagerEvent.CLIENT_REGISTER, self.update_scanners
-        )
-        self.manager.register_listener(
-            ui.context.client.id, ManagerEvent.CLIENT_UNREGISTER, self.update_scanners
-        )
-        self.manager.register_listener(
-            ui.context.client.id, ManagerEvent.PKT_DATA_RECV, self.update_scanners
-        )
-        self.manager.register_listener(
-            ui.context.client.id, ManagerEvent.PKT_DATA_RECV, self._update_plot_data
-        )
 
-        self.dialog = ScannerDialog(self.manager, settings, self.select_ap)
         self.fig = go.Figure(layout={"template": "plotly_dark"})
 
         self.scanner_state_colors = {
@@ -225,13 +249,14 @@ class ScannerList:
         self.saved_layout: go.Layout = None
         self.scanner_states: dict[str, bool] = dict()
         self.scanner_colors: dict[str, str] = dict()
-        self.cover_visibility = True
 
     def display_list(self):
         self.scanner_list = (
             ui.list().classes("w-full overflow-y-auto").props("separator")
         )
+        self.scanner_states.clear()
         self.update_scanners()
+        REGISTER_TIMER_CALLBACK(ui.context.client.id, self.update_scanners)
 
     def display_plot(self):
         self.plot = ui.plotly(self.fig).classes("w-full h-full")
@@ -259,19 +284,32 @@ class ScannerList:
             .props("flat")
         )
         self.cover.bind_visibility_from(
-            self.manager, "state", backward=lambda s: s != ManagerState.SCANNING
+            self.manager, "selected_ap_obj", backward=lambda s: s == None
         )
 
         with self.cover:
             ui.label("Waiting for client data....").classes("black text-2xl")
+        REGISTER_TIMER_CALLBACK(ui.context.client.id, self._update_plot)
 
     def update_scanners(self, args=None):
-        print("UPDATE SCNANERS")
-        if not self.scanner_list:
+        if len(self.scanner_states.keys()) == len(self.manager.scanners.keys()):
             return
 
+        # find what changed (client added/removed), update scanner list and plot entries accordingly
+        intersect = self.scanner_states.keys() & self.manager.scanners.keys()
+        to_remove = [id for id in self.scanner_states.keys()
+                     if id not in intersect]
+        new_fig_data = list(self.fig.data)
+        for id in to_remove:
+            self.scanner_states.pop(id)
+            for i, data in enumerate(new_fig_data):
+                if data.name == id:
+                    new_fig_data.pop(i)
+                    break
+        self.fig.data = new_fig_data
+
+        self.scanner_list.clear()
         with self.scanner_list:
-            self.scanner_list.clear()
             if len(self.manager.scanners.keys()) == 0:
                 ui.label("No clients registered.")
                 self.scanner_states.clear()
@@ -279,16 +317,20 @@ class ScannerList:
 
             for i, id in enumerate(self.manager.scanners):
                 if id not in self.scanner_states:
-
                     self.scanner_states[id] = True
                     self.scanner_colors[id] = plot_cl.qualitative.Plotly[i]
                     if len(self.settings.selected_dir) > 0:
                         self.manager.update_scanner_result_path(
                             id, self.settings.selected_dir
                         )
-                    self.fig.add_scatter(
-                        x=[], y=[], marker=dict(color=self.scanner_colors[id]), name=id
-                    )
+                    if id not in [data.name for data in self.fig.data]:
+                        self.fig.add_scatter(
+                            x=[],
+                            y=[],
+                            marker=dict(color=self.scanner_colors[id]),
+                            name=id,
+                        )
+
                 scanner = self.manager.scanners[id]
 
                 item = ui.item(
@@ -305,25 +347,42 @@ class ScannerList:
                         f"width: 10px; background-color:{self.scanner_colors[id]}"
                     ).classes("mr-2")
                     with ui.item_section():
-                        ui.item_label(f"{id}").classes(f"font-bold text-lg p-2")
+                        ui.item_label(f"{id}").classes(
+                            f"font-bold text-lg p-2")
 
-                        ui.item_label(
-                            f"Average RSSI (dBm): {int(scanner.stats.average) if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
+                        ui.item_label().bind_text_from(
+                            scanner,
+                            "stats",
+                            lambda s: f"Average RSSI (dBm): {int(s.average) if scanner.state == ScannerState.SCANNER_SCANNING else '--'}",
                         ).props("caption")
 
-                        ui.item_label(
-                            f"Maximum RSSI (dBm): {int(scanner.stats.maximum) if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
+                        ui.item_label().bind_text_from(
+                            scanner,
+                            "stats",
+                            lambda s: f"Maximum RSSI (dBm): {int(s.maximum) if scanner.state == ScannerState.SCANNER_SCANNING else '--'}",
                         ).props("caption")
 
-                        ui.item_label(
-                            f"Minimum RSSI (dBm): {int(scanner.stats.minimum) if scanner.state == ScannerState.SCANNER_SCANNING else "--"}"
+                        ui.item_label().bind_text_from(
+                            scanner,
+                            "stats",
+                            lambda s: f"Minimum RSSI (dBm): {int(s.minimum) if scanner.state == ScannerState.SCANNER_SCANNING else '--'}",
                         ).props("caption")
 
                     with ui.item_section().props("side"):
-                        ui.icon(
-                            "circle",
-                            color=f"{self.scanner_state_colors[scanner.state]}",
-                        )
+                        ui.icon("circle")
+
+                    def _update_scanner_state_icon():
+                        for child in self.scanner_list.descendants():
+                            if child.props.get("name") == "circle":
+                                child.props["color"] = self.scanner_state_colors[
+                                    scanner.state
+                                ]
+                            child.update()
+
+                    _update_scanner_state_icon()
+                    REGISTER_TIMER_CALLBACK(
+                        ui.context.client.id, _update_scanner_state_icon
+                    )
 
                     state_desc = ""
                     match scanner.state:
@@ -336,9 +395,8 @@ class ScannerList:
                     with ui.tooltip().classes("text-lg"):
                         ui.label(f"{state_desc}")
                         if scanner.state == ScannerState.SCANNER_SCANNING:
-                            ui.label(f"Average RSSI: {scanner.stats.average}\n")
-
-            self.scanner_list.update()
+                            ui.label(
+                                f"Average RSSI: {scanner.stats.average}\n")
 
     def _on_scanner_select(self, e: ClickEventArguments, id):
         self.scanner_states[id] = not self.scanner_states[id]
@@ -348,18 +406,6 @@ class ScannerList:
         else:
             e.sender.classes.remove("opacity-70")
         e.sender.update()
-        self._update_plot()
-
-    def _update_plot_data(self, id: str):
-        print("UPDATE PLOT DATA")
-        if not id:
-            return
-        if id not in self.scanner_states.keys():
-            self.scanner_states[id] = True
-
-        scanner = self.manager.scanners[id]
-
-        self.cover_visibility = False
         self._update_plot()
 
     def _update_plot(self):
@@ -372,13 +418,14 @@ class ScannerList:
                 continue
 
             if id not in self.scanner_states.keys():
-                continue
+                self.scanner_states[id] = True
 
             if not self.scanner_states[id]:
                 self.fig.update_traces(selector=dict(name=id), visible=False)
                 continue
 
-            sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(id)
+            sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(
+                id)
 
             self.fig.update_traces(
                 x=ts_buf,
@@ -389,11 +436,15 @@ class ScannerList:
 
             if len(ts_buf) > len(xaxis):
                 xaxis = ts_buf
+
+        print(self.saved_layout)
         if len(items) > 0 and not self.saved_layout:
             if len(xaxis) > consts.X_AXIS_SPAN:
-                self.fig.update_xaxes(range=[xaxis[-consts.X_AXIS_SPAN], xaxis[-1]])
-
-        else:
+                self.fig.update_xaxes(
+                    range=[xaxis[-consts.X_AXIS_SPAN], xaxis[-1]])
+            elif len(xaxis) > 0:
+                self.fig.update_xaxes(range=[xaxis[0], xaxis[-1]])
+        elif self.saved_layout:
             self.fig.layout = self.saved_layout
 
         self.plot.update()
@@ -421,34 +472,28 @@ class ScannerList:
             self.fig.update_xaxes(
                 range=[e.args["xaxis.range[0]"], e.args["xaxis.range[1]"]]
             )
-            if "yaxis.range[0]" in e.args:
-                self.fig.update_yaxes(
-                    range=[e.args["yaxis.range[0]"], e.args["yaxis.range[1]"]]
-                )
-            self.saved_layout = self.fig.layout
+        if "yaxis.range[0]" in e.args:
+            self.fig.update_yaxes(
+                range=[e.args["yaxis.range[0]"], e.args["yaxis.range[1]"]]
+            )
+        self.saved_layout = self.fig.layout
 
     def reset_axes(self):
         self.saved_layout = None
         self.change_plot_type(self.data_type)
 
-    async def select_ap(self, e: events.GenericEventArguments):
-        ap = e.args
-        self._reset_data()
-        self.cover_visibility = True
-        self.manager.selected_ap_obj = ap
-        await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_SELECT_AP, json.dumps(ap))
-        self.dialog.dialog.close()
-
     def _reset_data(self):
         for id in self.scanner_states.keys():
             self.scanner_states[id] = True
+        for data in self.fig.data:
+            print(data.name)
+            data.x = []
+            data.y = []
         self.reset_axes()
 
     async def stop_capture(self):
-        for id in self.scanner_states.keys():
-            self.manager.update_scanner_display_stats(id, add=False, reset=True)
+        self.manager.do_capture_stop()
         self.scanner_states.clear()
-        self.manager.selected_ap_obj = None
         await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_STOP)
         self._update_plot()
 
@@ -456,11 +501,13 @@ class ScannerList:
 class GraphTab:
     def __init__(self, manager: Manager, settings: ScannerSettings, dark):
         self.manager = manager
-
+        self.settings = settings
         self.scanners = ScannerList(manager, settings, dark)
 
+    async def start_ap_scan(self):
+        await ScannerDialog(self.manager, self.settings, self.scanners._reset_data)
+
     def tab(self):
-        self.scanners.dialog.show_dialog()
 
         with (
             ui.card()
@@ -476,14 +523,16 @@ class GraphTab:
                     {0: "Variance", 1: "RSSI"}, value=0, on_change=self.change_plot
                 ).set_value(self.scanners.data_type)
 
-                ap_label = ui.label().classes("text-xl")
-                ap_label.bind_text_from(
-                    self.manager,
-                    "selected_ap_obj",
-                    lambda ap: (
-                        f"Selected AP: {ap["ssid"]} ({ap["bssid"]})" if ap else ""
-                    ),
-                )
+                with ui.row():
+                    ssid_label = ui.label().classes("text-xl")
+                    bssid_label = ui.label().classes("text-xl")
+
+                    ssid_label.bind_text_from(self.manager, "selected_ap_obj", lambda ap: (
+                        f"Selected AP: {ap["ssid"]}" if ap else ""))
+
+                    bssid_label.bind_text_from(self.manager, "selected_ap_obj", lambda ap: (
+                        f"({ap["bssid"]})" if ap else ""))
+
                 ui.button("Reset axes").on_click(self.scanners.reset_axes)
 
         with (
@@ -495,7 +544,7 @@ class GraphTab:
         ):
             with ui.row().classes("w-full justify-between"):
                 ui.button(
-                    "AP Scan", on_click=self.scanners.dialog.start_scan
+                    "AP Scan", on_click=self.start_ap_scan
                 ).bind_enabled_from(self.manager, "can_scan")
                 ui.button(
                     "Stop capture", on_click=self.scanners.stop_capture
@@ -504,6 +553,35 @@ class GraphTab:
                 ).props(
                     "flat"
                 )
+            with ui.row().classes("w-full"):
+                ui.label("System state")
+                state_label = ui.label("--")
+                state_tooltip = None
+                with state_label:
+                    state_tooltip = ui.tooltip().classes("text-lg")
+
+                def _update_state():
+                    state = self.manager.state.name
+                    color = ""
+                    tooltip = ""
+                    text = state
+
+                    match state:
+                        case "IDLE" | "SELECTING":
+                            color = "orange-8"
+                            tooltip = "System is currently idle, waiting for scan."
+                            text = "IDLE"
+                        case "SCANNING":
+                            color = "green-8"
+                            tooltip = "System is active and collecting RSSI from access point."
+                    state_label.set_text(f"{text}")
+                    state_label.classes.clear()
+                    state_label.classes(f"text-bold text-{color}")
+
+                    state_tooltip.set_text(tooltip)
+
+                _update_state()  # call it now as well, so it shows instantly, any updates later on handled in timer cb
+                REGISTER_TIMER_CALLBACK(ui.context.client.id, _update_state)
 
             ui.separator()
             ui.label("Scanners").classes("text-bold")
@@ -594,8 +672,10 @@ class SettingsTab:
                         if len(self.settings.selected_dir) == 0
                         else self.settings.selected_dir
                     )
-                    self.dir_label.bind_text_from(self.settings, "selected_dir")
-                    clear = ui.button("Clear", on_click=self._clear_dir).props("flat")
+                    self.dir_label.bind_text_from(
+                        self.settings, "selected_dir")
+                    clear = ui.button(
+                        "Clear", on_click=self._clear_dir).props("flat")
                     clear.bind_visibility_from(
                         self.settings, "selected_dir", backward=lambda d: len(d) != 0
                     )
@@ -609,7 +689,8 @@ class SettingsTab:
 
     async def _select_file_path(self):
         dirs = await local_file_picker("~")
-        print(dirs)
+        if not dirs:
+            return
         self.settings.selected_dir = dirs[0]
         self.dir_label.set_text(self.selected_dir)
 
@@ -652,7 +733,20 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
         dark = ui.dark_mode(True)
         graph_tab = GraphTab(manager, settings, dark)
         settings_tab = SettingsTab(manager, settings)
-        main = None
+        main = None  # this is used as base element for the UI
+
+        # loop over callbacks for UI updates
+        def do_timer_run():
+            for cb_list in TIMER_CBS.values():
+                for cb in cb_list:
+                    cb()
+
+        ui.timer(1.0, do_timer_run, immediate=False)
+
+        with ui.element().classes("flex flex-col h-[calc(100vh-128px)] w-full"):
+            main = ui.row().classes(
+                "flex-grow grid grid-cols-6 md:grid-rows-1 grid-rows-3 justify-items-center"
+            )
 
         def graph():
             main.clear()
@@ -664,15 +758,28 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
             with main:
                 settings_tab.tab()
 
-        def shutdown():
-            print("shutdown")
+        async def shutdown():
             with main:
-                with ui.dialog().classes() as dialog, ui.card().props("flat"):
-                    dialog.open()
-                    ui.label("Shutting down...").classes("text-2xl text-bold")
-                    ui.label("This tab can be closed.").classes("text-xl")
-            app.shutdown()
-                
+                with ui.dialog() as dialog, ui.card().props("flat"):
+                    ui.label("Confirm shutdown").classes("text-2xl text-bold")
+                    with ui.row().classes("w-full justify-end"):
+                        ui.button("Yes", on_click=lambda: dialog.submit(True))
+                        ui.button("No", on_click=lambda: dialog.submit(False)).props(
+                            "outline"
+                        )
+
+            res = await dialog
+            dialog.clear()
+            if res:
+                with main:
+                    with dialog, ui.card().props("flat"):
+
+                        dialog.open()
+                        ui.label("Shutting down...").classes(
+                            "text-2xl text-bold")
+                        ui.label("This tab can be closed.").classes("text-xl")
+                app.shutdown()
+
         with ui.header().classes("h-[64px] justify-between bg-primary"):
             ui.label("RSSI analyzer").classes("text-lg md:text-3xl")
             ui.space()
@@ -681,13 +788,9 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
             with ui.button(icon="settings").on_click(settings):
                 ui.label("Settings").classes("max-sm:hidden")
             ui.space()
-            ui.button(icon="power_settings_new").classes("bg-red").on_click(shutdown)
+            ui.button(icon="power_settings_new").classes(
+                "bg-red").on_click(shutdown)
             # ui.switch("Dark mode").props('keep-color').bind_value(dark)
-
-        with ui.element().classes("flex flex-col h-[calc(100vh-128px)] w-full"):
-            main = ui.row().classes(
-                "flex-grow grid grid-cols-6 md:grid-rows-1 grid-rows-3 justify-items-center"
-            )
 
         ui.colors(
             primary="#6E93D6",
@@ -711,6 +814,19 @@ def create_ui(manager: Manager, mqtt_client: MqttClient):
             }      
         """
         )
+        ui.add_head_html("""
+            <style>
+            @media (min-width: 768px) {
+                .q-table thead th {
+                    font-size: 1.125rem;
+                }
+                .q-table tbody td {
+                    font-size: 1.125rem;
+                }
+            }
+            </style>
+            """
+                         )
 
         graph()
 
@@ -728,9 +844,14 @@ async def start():
         mqtt_client = MqttClient(arg1)
         manager = Manager(mqtt_client)
         task = asyncio.create_task(manager_work_loop(manager))
+
+        TIMER_CBS.clear()
         create_ui(manager, mqtt_client)
+
         def disconnect():
-            manager.remove_listeners(ui.context.client.id)
+            UNREGISTER_ID_CALLBACK(ui.context.client.id, manager)
+            # manager.remove_listeners(ui.context.client.id)
+
         app.on_disconnect(disconnect)
     except:
         print("Startup failed")

@@ -137,11 +137,10 @@ class Manager:
     def _is_outlier(self, scanner: ScannerClient, entry: int) -> bool:
         # variance can be 0 if RSSI is very stable (or the window is atleast, so Z score calc fails, assume
         # there's always some variance in such case
-        var = max (scanner.stats.variance, 0.1)
+        var = max(scanner.stats.variance, 1)
         z = (entry - scanner.stats.average) / math.sqrt(var)
 
-        print(f"scanner {scanner.id} entry {entry} avg {scanner.stats.average} (var {scanner.stats.variance}) with z = {z}")
-
+        # hopefully filters out much higher values, found some random one time spikes of 2x weaker RSSi
         return abs(z) > 5
 
     def _update_scanner_stats(self, id: str, data):
@@ -177,21 +176,20 @@ class Manager:
             # single point variance
             var = (val - avg) ** 2
 
-            
             # "smooth" out using prev variance values
             client.stats.variance_calc_buf.append(var)
-            client.stats.variance = sum(client.stats.variance_calc_buf) / len(client.stats.variance_calc_buf)
-            
+            client.stats.variance = sum(client.stats.variance_calc_buf) / len(
+                client.stats.variance_calc_buf
+            )
+
             # take last 5 variance values to "smooth" change over time
             var_sum = sum(list(client.stats.variance_calc_buf)[-5:])
-            
+
             # just clamp value if its too extreme, don't really care about the value itself
             if var_sum > consts.Y_VAR_MAX:
                 var_sum = consts.Y_VAR_MAX
             client.stats.variance_disp_buf.append(var_sum)
-            
-            
-            
+
             if len(client.stats.signal_buf) == consts.PKT_STATS_BUF_SIZE:
                 client.stats.done = True
         return len(data)
@@ -244,7 +242,7 @@ class Manager:
                         if count == len(self.scanners)
                     ]
                     self.state = ManagerState.SELECTING
-                    self._call_listeners(ManagerEvent.AP_SELECT)
+                    # self._call_listeners(ManagerEvent.AP_SELECT)
 
             case PayloadType.PKT_LIST:
                 self.state = ManagerState.SCANNING
@@ -252,13 +250,13 @@ class Manager:
                 count = self._update_scanner_stats(id, data)
                 self.update_scanner_display_stats(id, count=count)
 
-                if self.scanners[id].stats.done:
-                    self._call_listeners(ManagerEvent.PKT_DATA_RECV, id)
+                # if self.scanners[id].stats.done:
+                # self._call_listeners(ManagerEvent.PKT_DATA_RECV, id)
                 await self._write_pkt_data(copy.deepcopy(self.scanners[id]))
 
     def _handle_client_crash(self, id: str):
         self.scanners.pop(id)
-        self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
+        # self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
 
     def _handle_cmd(self, cmd: str, id: str):
         if len(id) == 0:
@@ -284,13 +282,13 @@ class Manager:
                                 json.dumps(self.selected_ap_obj),
                             )
                     else:
+                        print(f"Unregister scanner {id}")
                         self.scanners[id].scanning = False
                         self.scanners.pop(id)
                         if len(self.scanners.keys()) == 0:
                             self.state = ManagerState.IDLE
                             self.can_scan = False
-
-                    self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
+                    # self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
                     return
 
                 self.scanners[id] = ScannerClient(id)
@@ -307,7 +305,7 @@ class Manager:
 
                 self.client.mqtt_client.publish(topic_regack, None, 1)
                 self.update_scanner_display_stats(id, reset=True, add=False)
-                self._call_listeners(ManagerEvent.CLIENT_REGISTER)
+                # self._call_listeners(ManagerEvent.CLIENT_REGISTER)
 
             case consts.CMD_CRASH:
                 print(f"Crashing {id}")
@@ -323,7 +321,7 @@ class Manager:
                     for s in self.scanners.values()
                 ):
                     self.can_scan = False
-                self._call_listeners(ManagerEvent.CLIENT_REGISTER)
+                # self._call_listeners(ManagerEvent.CLIENT_REGISTER)
             case consts.CMD_READY:
                 print(f"{id} READY")
                 self.can_scan = True
@@ -334,7 +332,7 @@ class Manager:
         self.scanners.pop(id)
         if len(self.scanners) == 0:
             self.state = ManagerState.IDLE
-        self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
+        # self._call_listeners(ManagerEvent.CLIENT_UNREGISTER)
 
     async def _message_handler(self, topic: str, payload: str):
         topic_parts = topic.split("/")
@@ -366,26 +364,35 @@ class Manager:
     async def reset_scan_state(self):
         self.state = ManagerState.IDLE
 
-    def register_listener(self, id: str, event: ManagerEvent, callback: callable):
-        if id not in self.listeners.keys():
-            self.listeners[id] = dict()
+    # def register_listener(self, id: str, event: ManagerEvent, callback: callable):
+    #     if id not in self.listeners.keys():
+    #         self.listeners[id] = dict()
 
-        if event not in self.listeners[id].keys():
-            self.listeners[id] = {event: [callback]}
-        else:
-            self.listeners[id][event].append(callback)
+    #     if event not in self.listeners[id].keys():
+    #         self.listeners[id] = {event: [callback]}
+    #     else:
+    #         self.listeners[id][event].append(callback)
 
-    def _call_listeners(self, event: ManagerEvent, args=None):
-        for id, cbs in self.listeners.items():
-            if event not in cbs.keys():
-                continue
+    # def _call_listeners(self, event: ManagerEvent, args=None):
+    #     for id, cbs in self.listeners.items():
+    #         if event not in cbs.keys():
+    #             continue
 
-            for callback in cbs[event]:
-                callback(args)
+    #         for callback in cbs[event]:
+    #             callback(args)
 
-    def remove_listeners(self, id: str):
-        if id in self.listeners.keys():
-            self.listeners.pop(id)
+    # def remove_listeners(self, id: str):
+    #     if id in self.listeners.keys():
+    #         self.listeners.pop(id)
+    def do_capture_start(self):
+        self.update_scanner_display_stats("", reset=True, add=False)
+            
+    def do_capture_stop(self):
+        for id, scanner in self.scanners.items():
+            scanner.state = ScannerState.SCANNER_IDLE
+            scanner.finished_scan = False
+            scanner.scanning = False
+        self.state = ManagerState.IDLE
 
     async def mqtt_send(self, topic: str, payload: str = None, qos: int = 1):
         # clean up for upcoming states
