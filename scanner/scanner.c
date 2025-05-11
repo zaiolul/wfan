@@ -132,6 +132,7 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
     else if(!strcmp(cmd, CMD_END))
     {
         cap_stop();
+        memset(&ctx->selected_ap, 0, sizeof(ctx->selected_ap));
         ctx->registered = 0;
     }
 
