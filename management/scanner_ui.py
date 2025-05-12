@@ -1,5 +1,5 @@
 from nicegui import ui
-from scanner_settings import ScannerSettings
+from scanner_settings_ui import ScannerSettings
 from data import ScannerState
 from manager import Manager
 from plotly import graph_objects as go
@@ -11,7 +11,7 @@ from nicegui.events import (
 )
 import plotly.graph_objects as go
 import plotly.colors as plot_cl
-from main import Updates
+from updates_ui import Updates
 
 class ScannerList:
     def __init__(self, manager: Manager, settings: ScannerSettings, dark):

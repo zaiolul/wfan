@@ -2,43 +2,11 @@
 from nicegui import ui, app
 import asyncio
 from manager import Manager, MqttClient
-from typing import Callable
-from settings_tab import SettingsTab
-from graph_tab import GraphTab
-from scanner_settings import ScannerSettings
-from confirm_dialog import ConfirmDialog
-
-# used with ui.timer, define callbacks for ui updates
-# id: nicegui context id, list: list of callbacks
-class Updates:
-    def __init__(self):
-        self.timer_cbs = dict[str, list[Callable]]()
-
-    @staticmethod
-    def REGISTER_TIMER_CALLBACK(self, id: str, cb: Callable):
-        if id not in self.timer_cbs:
-            self.timer_cbs[id] = []
-
-        # overwrite old callback, noticed some problems if functions are weirdly defined
-        # inside other funcs (see _update_state), as it would call "older version" of the function
-        # probably cause this code is absolute trash :/
-        for i, ex in enumerate(self.timer_cbs[id]):
-            if ex.__name__ == cb.__name__:
-                del self.timer_cbs[id][i]
-                break
-
-        self.timer_cbs[id].append(cb)
-
-    @staticmethod
-    def UNREGISTER_ID_CALLBACK(self, id: str, cb: Callable):
-        if id in self.timer_cbs:
-            del self.timer_cbs[id]
-    
-    def run(self):
-        for cb_list in self.timer_cbs.values():
-            for cb in cb_list:
-                cb()
-
+from settings_ui import SettingsTab
+from graph_ui import GraphTab
+from scanner_settings_ui import ScannerSettings
+from confirm_dialog_ui import ConfirmDialog
+from updates_ui import Updates
 
 async def create_ui(manager: Manager, mqtt_client: MqttClient):
 

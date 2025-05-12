@@ -2,10 +2,10 @@ from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 from data import ManagerState
 from manager import Manager
-from scanner_settings import ScannerSettings
-from scanner_dialog import ScannerDialog
-from scanner_list import ScannerList
-from main import Updates
+from scanner_settings_ui import ScannerSettings
+from scanner_dialog_ui import ScannerDialog
+from scanner_ui import ScannerList
+from updates_ui import Updates
 
 class GraphTab:
     def __init__(self, manager: Manager, settings: ScannerSettings, dark):

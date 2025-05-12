@@ -2,7 +2,7 @@ from nicegui import ui, events
 from typing import Callable, Awaitable
 import asyncio
 from manager import Manager
-from scanner_settings import ScannerSettings
+from scanner_settings_ui import ScannerSettings
 import json
 import consts
 from data import ManagerState

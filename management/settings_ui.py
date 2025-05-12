@@ -2,10 +2,10 @@ from nicegui import ui, run
 from nicegui.events import ValueChangeEventArguments
 from manager import Manager
 import consts
-from file_picker import local_file_picker
+from file_picker_ui import local_file_picker
 import os
-from scanner_settings import ScannerSettings
-from main import Updates
+from scanner_settings_ui import ScannerSettings
+from updates_ui import Updates
 
 class SettingsTab:
     def __init__(self, manager: Manager, settings: ScannerSettings):
