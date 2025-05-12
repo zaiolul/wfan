@@ -1,11 +1,11 @@
 from nicegui import ui
 from nicegui.events import ValueChangeEventArguments
 from data import ManagerState
-from manager.manager import Manager
+from manager import Manager
 from scanner_settings import ScannerSettings
 from scanner_dialog import ScannerDialog
 from scanner_list import ScannerList
-
+from main import Updates
 
 class GraphTab:
     def __init__(self, manager: Manager, settings: ScannerSettings, dark):
@@ -90,7 +90,7 @@ class GraphTab:
                     state_tooltip.set_text(tooltip)
 
                 _update_state()  # call it now as well, so it shows instantly, any updates later on handled in timer cb
-                REGISTER_TIMER_CALLBACK(ui.context.client.id, _update_state)
+                Updates.REGISTER_TIMER_CALLBACK(ui.context.client.id, _update_state)
 
             ui.separator()
             ui.label("Scanners").classes("text-bold")

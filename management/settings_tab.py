@@ -1,6 +1,6 @@
 from nicegui import ui, run
 from nicegui.events import ValueChangeEventArguments
-from manager.manager import Manager
+from manager import Manager
 import consts
 from file_picker import local_file_picker
 import os

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 from nicegui import ui, app
 import asyncio
-from manager.manager import Manager, MqttClient
+from manager import Manager, MqttClient
 from typing import Callable
-
-from manager.settings_tab import SettingsTab
-from manager.graph_tab import GraphTab
+from settings_tab import SettingsTab
+from graph_tab import GraphTab
 from scanner_settings import ScannerSettings
 from confirm_dialog import ConfirmDialog
 
