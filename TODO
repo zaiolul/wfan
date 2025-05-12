@@ -1,5 +1,0 @@
-*radiotap/wifi frame parsing
-*wifi AP scan & connect OR monitor mode  
-*additional devices, comm through MQTT
-*save frame to pcap and save parsed rssi value in another place
-*basic UI dashboard, rssi over time for each device
