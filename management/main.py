@@ -134,4 +134,4 @@ async def start():
 
 app.on_startup(start)
 
-ui.run()
+ui.run(port=11000, title="wfan", favicon="files/wfan_icon.png", reload=False)
