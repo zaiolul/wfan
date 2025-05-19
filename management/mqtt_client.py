@@ -47,6 +47,11 @@ class MqttClient:
         except:
             print("Failed to connect to MQTT broker")
 
+    def disconnect(self):
+        self.mqtt_client.disconnect()
+        self.mqtt_client.loop_stop()
+        self.mqtt_client = None
+        
     def get_status(self):
         return self.mqtt_client.is_connected()
 

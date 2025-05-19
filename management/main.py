@@ -119,13 +119,17 @@ async def start():
         mqtt_client = MqttClient()
         manager = Manager(mqtt_client)
         task = asyncio.create_task(manager_work_loop(manager))
-
         
         await create_ui(manager, mqtt_client)
 
         def disconnect():
            Updates.UNREGISTER_ID_CALLBACK(ui.context.client.id, manager)
 
+        def shutdown():
+            mqtt_client.disconnect()
+            task.cancel()
+            
+        app.on_shutdown(shutdown)
         app.on_disconnect(disconnect)
     except:
         print("Startup failed")
