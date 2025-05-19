@@ -56,12 +56,12 @@ pcap_t *cap_pcap_setup(char *device)
     pcap_set_timeout(handle, 50);
 
     if (pcap_activate(handle)) {
-        fprintf(stderr, "Can't activate pcap handle, exit");
+        fprintf(stderr, "Can't activate pcap handle, exit\n");
         goto err;
     }
 
     if (pcap_setnonblock(handle, 1, err_msg)) {
-        fprintf(stderr, "Can't set pcap non-blocking, exit");
+        fprintf(stderr, "Can't set pcap non-blocking, exit\n");
         goto err;
     }
 
@@ -83,12 +83,12 @@ err:
     return NULL;
 }
 
-void cap_pcap_close(pcap_t *handle)
+void cap_close()
 {
-    if (!handle)
+    if (!ctx->handle)
         return;
 
-    pcap_close(handle);
+    pcap_close(ctx->handle);
 }
 
 static int cap_add_ap(struct wifi_ap_info *ap)
@@ -574,7 +574,7 @@ void cap_stop()
     cap_override_state(STATE_END);
 }
 
-int cap_start_capture(struct capture_ctx *cap_ctx, char *dev, cap_send_cb cb)
+int cap_setup(struct capture_ctx *cap_ctx, char *dev, cap_send_cb cb)
 {
     if (!cap_ctx) 
         return -1;
@@ -592,7 +592,15 @@ int cap_start_capture(struct capture_ctx *cap_ctx, char *dev, cap_send_cb cb)
         fprintf(stderr, "Failed to setup netlink\n");
         return NLE_FAILURE;
     }
+    return 0;
+}
 
+int cap_run()
+{
+    if (!ctx)
+        return -1;
+    ctx->ap_count = 0;
+    ctx->pkt_count = 0;
     ctx->state = STATE_IDLE;
     if (is_valid_mac(ctx->selected_ap.bssid))
        ctx->state = STATE_PKT_CAP;
@@ -604,6 +612,5 @@ int cap_start_capture(struct capture_ctx *cap_ctx, char *dev, cap_send_cb cb)
         ctx->override_state = 0;
     }
 
-    cap_pcap_close(ctx->handle);
     return 0;
 }

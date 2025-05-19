@@ -1,9 +1,6 @@
 .vscode/
-common/*.o
-common/json/*.o
-scanner/*.o
+scanning/*.o
+scanning/json/*.o
 wfan_scan
-manager/*.o
-wfan_mgr
-build/
+management/*.o
 *__pycache__*

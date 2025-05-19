@@ -271,6 +271,9 @@ int main(int argc, char *argv[])
     }
     memset(cap_ctx, 0, sizeof(struct capture_ctx));
 
+    if (cap_setup(cap_ctx, ctx->dev, &msg_send_cb))
+        goto cap_err;
+
     pthread_create(&mqtt_thread, NULL, &mqtt_thread_func, NULL);
 
     while (1)
@@ -278,15 +281,15 @@ int main(int argc, char *argv[])
         if (try_register())
             break;
 
-        if (cap_start_capture(cap_ctx, ctx->dev, &msg_send_cb))
-            break;
+        cap_run();
     }
-    free(cap_ctx);
-
     pthread_join(mqtt_thread, NULL);
 
 mqtt_err:
     mqtt_cleanup();
+    cap_close();
+cap_err:
+    free(cap_ctx);
     free(ctx);
     return ret;
 }
