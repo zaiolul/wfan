@@ -33,7 +33,8 @@ class Manager:
         if len(path) == 0:
             self.scanners[id].outfile = ""
         else:
-            self.scanners[id].outfile = f"{path}/{id}_{datetime.date.today()}.csv"
+            time = datetime.datetime.now()
+            self.scanners[id].outfile = f"{path}/{id}_{time.strftime("%Y-%m-%d-%H_%M_%S")}.csv"
         print(f"Updated path for {id}: {self.scanners[id].outfile}")
 
     def update_results_path(self, path: str):
