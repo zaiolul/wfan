@@ -31,8 +31,8 @@ class SettingsTab:
 
         if os.path.exists(consts.SETTINGS_FILE):
             settings.import_options()
-
-        ui.timer(60.0, self._check_mqtt_conn)
+        self.prev_mqtt_state = False
+        ui.timer(1, self._check_mqtt_conn)
 
     def tab(self):
         self.changes_made = False
@@ -136,9 +136,14 @@ class SettingsTab:
                     ui.context.client.id, self._update_mqtt_status)
 
     async def _check_mqtt_conn(self):
-        if not self.manager.client.get_status():
-            ui.notify("MQTT connection lost, trying to reconnect...")
+        state = self.manager.client.get_status()
+        if not state:
             await self._conn_mqtt()
+        if self.prev_mqtt_state and not state:
+            ui.notify("MQTT disconnected, trying to connect", color="negative")
+        elif not self.prev_mqtt_state and state:
+            ui.notify("MQTT connected", color="positive")
+        self.prev_mqtt_state = state
 
     async def _conn_mqtt(self):
         def func():

@@ -37,8 +37,7 @@ class MqttClient:
     def try_connect(self, host: str, port: int, username: str, password: str):
         try:
             if self.mqtt_client.is_connected():
-                self.mqtt_client.disconnect()
-                self.mqtt_client.loop_stop()
+                self.disconnect()
 
             self.mqtt_client.username_pw_set(username, password)
             self.mqtt_client.connect(host, port, 10)
