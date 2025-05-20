@@ -32,7 +32,6 @@ class MqttClient:
     def _on_disconnect(
         self, client: mqtt.Client, userdata, flags: any, rc: int, properties: any = None
     ):
-        client.publish(consts.MANAGER_PUB_CMD_END, None, 1)
         print("Disconnected from MQTT broker")
 
     def try_connect(self, host: str, port: int, username: str, password: str):
@@ -48,10 +47,10 @@ class MqttClient:
             print("Failed to connect to MQTT broker")
 
     def disconnect(self):
+        self.mqtt_client.publish(consts.MANAGER_PUB_CMD_END, None, 1)
         self.mqtt_client.disconnect()
         self.mqtt_client.loop_stop()
-        self.mqtt_client = None
-        
+
     def get_status(self):
         return self.mqtt_client.is_connected()
 
