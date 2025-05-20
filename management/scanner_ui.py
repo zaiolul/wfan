@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 import plotly.colors as plot_cl
 from updates_ui import Updates
 
+
 class ScannerList:
     def __init__(self, manager: Manager, settings: ScannerSettings, dark):
         self.manager: Manager = manager
@@ -50,7 +51,8 @@ class ScannerList:
         )
         self.scanner_states.clear()
         self.update_scanners()
-        Updates.REGISTER_TIMER_CALLBACK(ui.context.client.id, self.update_scanners)
+        Updates.REGISTER_TIMER_CALLBACK(
+            ui.context.client.id, self.update_scanners)
 
     def display_plot(self):
         self.plot = ui.plotly(self.fig).classes("w-full h-full")
@@ -83,7 +85,8 @@ class ScannerList:
 
         with self.cover:
             ui.label("Waiting for client data....").classes("black text-2xl")
-        Updates.REGISTER_TIMER_CALLBACK(ui.context.client.id, self._update_plot)
+        Updates.REGISTER_TIMER_CALLBACK(
+            ui.context.client.id, self._update_plot)
 
     def update_scanners(self, args=None):
         if len(self.scanner_states.keys()) == len(self.manager.scanners.keys()):
@@ -203,23 +206,20 @@ class ScannerList:
         self._update_plot()
 
     def _update_plot(self):
-        print("UPDATE PLOT")
         # self.fig.data = []
+
         items = self.manager.scanners.items()
         xaxis = list()
-        for id, scanner in items:
-            if len(scanner.stats.signal_buf) == 0:
-                continue
 
-            if id not in self.scanner_states.keys():
-                self.scanner_states[id] = True
+        for id, scanner in items:
+            sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(
+                id)
+            if len(sig_buf) == 0:
+                continue
 
             if not self.scanner_states[id]:
                 self.fig.update_traces(selector=dict(name=id), visible=False)
                 continue
-
-            sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(
-                id)
 
             self.fig.update_traces(
                 x=ts_buf,
@@ -231,7 +231,6 @@ class ScannerList:
             if len(ts_buf) > len(xaxis):
                 xaxis = ts_buf
 
-        print(self.saved_layout)
         if len(items) > 0 and not self.saved_layout:
             if len(xaxis) > consts.X_AXIS_SPAN:
                 self.fig.update_xaxes(
@@ -261,7 +260,6 @@ class ScannerList:
         self._update_plot()
 
     def _on_relayout(self, e: GenericEventArguments):
-        print(e.args)
         if "xaxis.range[0]" in e.args:
             self.fig.update_xaxes(
                 range=[e.args["xaxis.range[0]"], e.args["xaxis.range[1]"]]
@@ -279,14 +277,10 @@ class ScannerList:
     def _reset_data(self):
         for id in self.scanner_states.keys():
             self.scanner_states[id] = True
-        for data in self.fig.data:
-            print(data.name)
-            data.x = []
-            data.y = []
+
+        self.fig.update_traces(x=[], y=[])
         self.reset_axes()
 
     async def stop_capture(self):
         self.manager.do_capture_stop()
-        self.scanner_states.clear()
         await self.manager.mqtt_send(consts.MANAGER_PUB_CMD_STOP)
-        self._update_plot()
