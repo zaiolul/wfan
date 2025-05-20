@@ -16,7 +16,7 @@ void sig_handler(int signal)
     switch (signal)
     {
     case SIGINT:
-        printf("%s(): stop\n", __func__);
+        printf("Interrupt received, stopping...\n");
         cap_stop();
         mqtt_publish_topic(reg_topic, empty);
         shared.stop = 1;
@@ -40,7 +40,6 @@ int parse_args(int argc, char *argv[])
             ctx->dev = strdup(optarg);
             break;
         case 'c':
-            printf("mqtt conf path: %s\n", optarg);
             ctx->mqtt_conf_path = strdup(optarg);
             break;
         default:
@@ -95,7 +94,6 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
     }
     else if (!strcmp(cmd, CMD_SCAN))
     {
-        printf("Received SCAN command\n");
         if (!ctx->registered)
             return;
         json = cJSON_Parse(data);
@@ -109,10 +107,13 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
 
         cap_set_chans(chans, chan_count);
         cap_override_state(STATE_AP_SEARCH_START);
+
+        printf("Start AP scan on channels:\n");
+        for(int i = 0; i < chan_count; i++)
+            printf("%d\n", chans[i]);
     }
     else if (!strcmp(cmd, CMD_SELECT_AP))
     {
-        printf("Set AP\n");
         json = cJSON_Parse(data);
         printf("%s\n", cJSON_Print(json));
         strncpy(bssid_str, cJSON_GetObjectItem(json, "bssid")->valuestring,
@@ -126,6 +127,7 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
             cap_set_ap(&ap);
 
         memcpy(&ctx->selected_ap, &ap, sizeof(struct wifi_ap_info)); // hold on to it
+        printf("Set AP (SSID %s)\n", ap.ssid);
     }
     else if(!strcmp(cmd, CMD_END))
     {
@@ -170,7 +172,7 @@ void prepare_topics(char *client_id, topic_t *topics)
     topic_t cmd_all = {SCANNER_SUB_CMD_ALL, 1};                                 // any command that is adressed to all
     topic_t cmd_id = {0, 1};                                                    // cmd directed to this specific client
     snprintf(cmd_id.name, MAX_TOPIC_LEN, "%s/%s/+", TOPIC_CMD_BASE, client_id); // cant do it differently
-    printf("topic id:%s\n", cmd_id.name);
+    // printf("topic id:%s\n", cmd_id.name);
     topics[0] = cmd_all;
     topics[1] = cmd_id;
 }
@@ -181,6 +183,7 @@ int try_register()
     payload_t empty = {0};
     topic_t reg_topic = {0, 2};
     sprintf(reg_topic.name, "%s/%s", SCANNER_PUB_CMD_REGISTER, ctx->client_id);
+    int conn_cnt = 5;
     while (1)
     {
         pthread_mutex_lock(&shared.lock);
@@ -199,12 +202,19 @@ int try_register()
             printf("Client registered.\n");
             // Edge case: crashed, received ap from active scan, but not yet initialized. Set to saved AP.
             // Error handling is later, so no problem if this is null
-            printf(MAC_FMT "\n", MAC_BYTES(ctx->selected_ap.bssid));
+            // printf(MAC_FMT "\n", MAC_BYTES(ctx->selected_ap.bssid));
             memcpy(&cap_ctx->selected_ap, &ctx->selected_ap, sizeof(struct wifi_ap_info));
             pthread_mutex_unlock(&shared.lock);
             return 0;
         }
 
+        if (conn_cnt % 5 == 0)
+        {
+            printf("Trying to register...\n");
+            conn_cnt = 0;
+        }
+
+        conn_cnt ++;
         mqtt_publish_topic(reg_topic, empty);
         pthread_mutex_unlock(&shared.lock);
         sleep(2);
@@ -266,7 +276,7 @@ int main(int argc, char *argv[])
     cap_ctx = malloc(sizeof(struct capture_ctx));
     if (!ctx)
     {
-        printf("%s(): failed to allocate context\n");
+        fprintf(stderr, "Failed to allocate capture context\n");
         return -1;
     }
     memset(cap_ctx, 0, sizeof(struct capture_ctx));

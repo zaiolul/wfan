@@ -46,10 +46,10 @@ int netlink_deint(struct nl80211_data *nl)
     return 0;
 }
 
-int msg_valid(struct nl_msg *msg, void *arg)
-{
-    printf("nl msg acked\n");
-}
+// int msg_valid(struct nl_msg *msg, void *arg)
+// {
+//     printf("nl msg acked\n");
+// }
 
 int netlink_switch_chan(struct nl80211_data *nl, int chan)
 {
@@ -70,8 +70,8 @@ int netlink_switch_chan(struct nl80211_data *nl, int chan)
     {
         return -ERANGE;
     }
-    nl_socket_modify_cb(nl->sock, NL_CB_VALID, NL_CB_CUSTOM, msg_valid, NULL);
-    printf("Set channel %d\n", chan);
+    // nl_socket_modify_cb(nl->sock, NL_CB_VALID, NL_CB_CUSTOM, msg_valid, NULL);
+    // printf("Set channel %d\n", chan);
     float time = time_millis();
     struct nl_msg *msg = nlmsg_alloc();
     genlmsg_put(msg, 0, 0, nl->id, 0, 0, NL80211_CMD_SET_CHANNEL, 0);
@@ -81,7 +81,7 @@ int netlink_switch_chan(struct nl80211_data *nl, int chan)
 
     ret = nl_send_auto(nl->sock, msg);
     nl_recvmsgs_default(nl->sock);
-    printf("nlmsg send and receive took: %f ms\n", time_millis() - time);
+    // printf("nlmsg send and receive took: %f ms\n", time_millis() - time);
     nlmsg_free(msg);
     msleep(10); // 10 ms wait
     return 0;

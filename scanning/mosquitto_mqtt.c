@@ -34,9 +34,9 @@ int mqtt_subscribe_topic(topic_t topic)
     int ret = mosquitto_subscribe(ctx->mosquitto, NULL, topic.name, topic.qos);
 
     if (ret != MOSQ_ERR_SUCCESS)
-        printf("Failed subscription: %s, %s\n", topic.name, mosquitto_strerror(ret));
+        fprintf(stderr, "Failed subscription: %s, %s\n", topic.name, mosquitto_strerror(ret));
 
-    printf("subscribe topic: %s qos: %d\n", topic.name, topic.qos);
+    // printf("subscribe topic: %s qos: %d\n", topic.name, topic.qos);
     pthread_mutex_unlock(&ctx->lock);
     return ret;
 }
@@ -46,14 +46,12 @@ int mqtt_publish_topic(topic_t topic, payload_t payload)
     pthread_mutex_lock(&ctx->lock);
     int message_id;
 
-    printf("%s()\n", __func__);
-
-    printf("publish topic: %s len: %d\n", topic.name, payload.len);
+    // printf("publish topic: %s len: %d\n", topic.name, payload.len);
     int ret = mosquitto_publish(ctx->mosquitto, &message_id, topic.name,
                                 payload.len, payload.data, topic.qos, false);
 
     if (ret)
-        printf("Failed publish: %s, %s\n", topic.name, mosquitto_strerror(ret));
+        fprintf(stderr, "Failed publish: %s, %s\n", topic.name, mosquitto_strerror(ret));
     else
         ret = message_id;
 
@@ -85,7 +83,7 @@ static int mqtt_read_config(char *path)
     fp = fopen(path, "r");
     if (fp == NULL)
     {
-        fprintf(stderr, "Can't open mqtt config file\n");
+        fprintf(stderr, "Can't open MQTT config file\n");
         return -1;
     }
 
@@ -122,18 +120,17 @@ static int mqtt_read_config(char *path)
         }
         else
         {
-            printf("Unknown key in config file: %s\n", key);
+            fprintf(stderr, "Unknown key in MQTT config: %s\n", key);
         }
     }
 
-    wfs_debug("Host: %s, port: %d user: %s pass: %s\n", conf->host, conf->port, conf->username, conf->password);
     free(line);
 
     fclose(fp);
 
     if (!ctx->config.host || !ctx->config.port)
     {
-        printf(" Broker host or port not set, check config.\n");
+        fprintf(stderr, "Broker host or port not set, check MQTT config.\n");
         return -1;
     }
 
@@ -175,7 +172,7 @@ static int mqtt_setup_login()
     if ((ret = mosquitto_username_pw_set(ctx->mosquitto, ctx->config.username, ctx->config.password)) != MOSQ_ERR_SUCCESS)
     {
         // syslog(LOG_ERR, "User settings error");
-        printf("User settings error (%d)\n", ret);
+        fprintf(stderr,"MQTT user settings error (%d)\n", ret);
         return ret;
     }
     return MOSQ_ERR_SUCCESS;
@@ -193,7 +190,7 @@ int mqtt_set_will(topic_t will)
     int ret;
     if ((ret = mosquitto_will_set(ctx->mosquitto, will.name, 0, NULL, will.qos, false)))
     {
-        printf("Will set err: %s\n", mosquitto_strerror(ret));
+        fprintf(stderr, "MQTT will set error: %s\n", mosquitto_strerror(ret));
         return ret;
     }
     return MOSQ_ERR_SUCCESS;
@@ -215,7 +212,7 @@ int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb)
 
     if ((ret = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS)
     {
-        printf("Can't initialize mosquitto lib\n");
+        fprintf(stderr, "Can't initialize mosquitto lib\n");
         return ret;
     }
 
@@ -270,16 +267,16 @@ static void mqtt_loop()
         switch (ret)
         {
         case MOSQ_ERR_CONN_LOST:
-            printf("Lost connection to broker\n");
+            fprintf(stderr, "Lost connection to broker\n");
             break;
         case MOSQ_ERR_NO_CONN:
             if (mqtt_try_reconnect(ctx->mosquitto, CONN_RETRY_CNT) != MOSQ_ERR_SUCCESS)
             {
-                printf("Couldn't reconnect to broker after multiple attemps, exiting\n");
+                fprintf(stderr, "Couldn't reconnect to broker after multiple attemps, exiting\n");
             }
             break;
         default:
-            printf("Unhandled error: %s", mosquitto_strerror(ret));
+            fprintf(stderr, "Unhandled error: %s", mosquitto_strerror(ret));
             break;
         }
 
@@ -296,10 +293,10 @@ int mqtt_run()
     if (!ctx || !ctx->mosquitto)
         return MOSQ_ERR_INVAL;
 
-    printf("Start MQTT comm\n");
+    printf("Start MQTT\n");
     if ((ret = mosquitto_connect(ctx->mosquitto, ctx->config.host, ctx->config.port, 10)) != MOSQ_ERR_SUCCESS)
     {
-        printf("Can't connect to broker\n");
+        fprintf(stderr, "Can't connect to broker\n");
         return ret;
     }
 

@@ -102,7 +102,7 @@ static int cap_add_ap(struct wifi_ap_info *ap)
     if (ctx->ap_count >= AP_MAX)
         return -1;
 
-    printf("Add AP %s ("MAC_FMT")\n", ap->ssid, MAC_BYTES(ap->bssid));
+    // printf("Add AP %s ("MAC_FMT")\n", ap->ssid, MAC_BYTES(ap->bssid));
     memcpy(&(ctx->ap_list[ctx->ap_count++]), ap, sizeof(struct wifi_ap_info));
 
     return 0;
@@ -456,7 +456,7 @@ void ap_list_to_json(cJSON *json, struct wifi_ap_info *ap_list, size_t count)
         cJSON_AddStringToObject(ap, "bssid", bssid);
         cJSON_AddNumberToObject(ap, "channel", ap_list[i].channel);
         cJSON_AddItemToArray(list, ap);
-        printf("%s\n", cJSON_Print(ap));
+        // printf("%s\n", cJSON_Print(ap));
     }
     cJSON_AddItemToObject(json, "data", list);
 }
@@ -508,7 +508,7 @@ static void _do_send()
             next_state = STATE_IDLE;
             break;
         case PKT_LIST:
-            printf("Packet scan time: %lld\n", time_elapsed_ms(ctx->time));
+            printf("Send data (packet scan time: %lld)\n", time_elapsed_ms(ctx->time));
             ctx->time = time_millis();
             memcpy(msg->pkt_list, ctx->pkt_list, sizeof(msg->pkt_list));
             msg->count = ctx->pkt_count;
