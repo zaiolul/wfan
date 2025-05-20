@@ -240,7 +240,7 @@ static int mqtt_try_reconnect(struct mosquitto *mosquitto, int retry_count)
     {
         if (mosquitto_reconnect(mosquitto) == MOSQ_ERR_SUCCESS)
             return MOSQ_ERR_SUCCESS;
-        sleep(1);
+        sleep(5);
     }
 
     return MOSQ_ERR_CONN_LOST;
@@ -268,12 +268,12 @@ static void mqtt_loop()
         {
         case MOSQ_ERR_CONN_LOST:
             fprintf(stderr, "Lost connection to broker\n");
-            break;
+            continue;
         case MOSQ_ERR_NO_CONN:
             if (mqtt_try_reconnect(ctx->mosquitto, CONN_RETRY_CNT) != MOSQ_ERR_SUCCESS)
             {
                 fprintf(stderr, "Couldn't reconnect to broker after multiple attemps, exiting\n");
-            }
+            } else continue;
             break;
         default:
             fprintf(stderr, "Error: %s", mosquitto_strerror(ret));

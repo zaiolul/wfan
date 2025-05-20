@@ -137,6 +137,7 @@ class SettingsTab:
 
     async def _check_mqtt_conn(self):
         if not self.manager.client.get_status():
+            ui.notify("MQTT connection lost, trying to reconnect...")
             await self._conn_mqtt()
 
     async def _conn_mqtt(self):
