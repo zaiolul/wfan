@@ -212,7 +212,7 @@ class Manager:
     def _handle_client_crash(self, id: str):
         self.scanners.pop(id)
 
-    def _handle_cmd(self, cmd: str, id: str):
+    async def _handle_cmd(self, cmd: str, id: str):
         if len(id) == 0:
             print("Invalid id")
             return
@@ -255,9 +255,8 @@ class Manager:
                     return
                 scanner = self.scanners[id]
                 self.scanners[id].state = ScannerState.SCANNER_CRASHED
-                scanner.crash_timer = asyncio.create_task(
-                    self._handle_scanner_crash(id)
-                )
+                scanner.crash_timer = await self._handle_scanner_crash(id)
+                
                 if all(
                     s.state == ScannerState.SCANNER_CRASHED
                     for s in self.scanners.values()
@@ -266,6 +265,12 @@ class Manager:
             case consts.CMD_READY:
                 print(f"{id} READY")
                 self.can_scan = True
+                if self.state == ManagerState.SCANNING:
+                    self.client.mqtt_client.publish(
+                        consts.MANAGER_PUB_CMD_SELECT_AP,
+                        json.dumps(self.selected_ap_obj),
+                    )
+                    self.scanners[id].scanning = True
 
     async def _handle_scanner_crash(self, id: str):
         await asyncio.sleep(consts.SCAN_CRASH_WAIT)
@@ -279,7 +284,7 @@ class Manager:
         if topic_matches_sub(consts.MANAGER_SUB_DATA, topic):
             await self._handle_data(topic_parts[1], payload)
         elif topic_matches_sub(consts.MANAGER_SUB_CMD_ID, topic):
-            self._handle_cmd(topic_parts[1], topic_parts[2])
+            await self._handle_cmd(topic_parts[1], topic_parts[2])
 
     async def receive_next(self):
         try:
