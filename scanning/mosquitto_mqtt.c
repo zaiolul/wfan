@@ -276,14 +276,16 @@ static void mqtt_loop()
             }
             break;
         default:
-            fprintf(stderr, "Unhandled error: %s", mosquitto_strerror(ret));
+            fprintf(stderr, "Error: %s", mosquitto_strerror(ret));
             break;
         }
 
         // i can just write returns in each of these cases, or just put the whole switch in this
         // conditional, but eh
-        if (ret != MOSQ_ERR_SUCCESS)
+        if (ret != MOSQ_ERR_SUCCESS) {
+            shared.stop = 1;
             return;
+        }
     }
 }
 
@@ -301,6 +303,7 @@ int mqtt_run()
     }
 
     mqtt_loop();
+
     mosquitto_disconnect(ctx->mosquitto);
     return MOSQ_ERR_SUCCESS;
 }

@@ -83,7 +83,6 @@ setup_monitor() {
     ip link set $MONITOR_DEV up
 
     echo "Monitor interface $MONITOR_DEV is set up."
-    echo "You can start scanner with: wfan_scanner -d $MONITOR_DEV"
 }
 
 get_phy
