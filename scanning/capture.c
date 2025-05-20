@@ -85,7 +85,7 @@ err:
 
 void cap_close()
 {
-    if (!ctx->handle)
+    if (!ctx || !ctx->handle)
         return;
 
     pcap_close(ctx->handle);

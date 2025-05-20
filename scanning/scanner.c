@@ -27,9 +27,9 @@ void sig_handler(int signal)
     pthread_mutex_unlock(&shared.lock);
 }
 
-void parse_args(int argc, char *argv[])
+int parse_args(int argc, char *argv[])
 {
-    char *prog_opts = "d:v:p:";
+    char *prog_opts = "d:c:";
     int opt;
 
     while ((opt = getopt(argc, argv, prog_opts)) != -1)
@@ -38,28 +38,26 @@ void parse_args(int argc, char *argv[])
         {
         case 'd':
             ctx->dev = strdup(optarg);
-            wfs_debug("Device: %s\n", ctx->dev);
             break;
-        case 'v':
-            break;
-        case 'p':
+        case 'c':
+            printf("mqtt conf path: %s\n", optarg);
             ctx->mqtt_conf_path = strdup(optarg);
             break;
         default:
-            printf("Usage: %s [-d device] [-v]\n", argv[0]);
-            exit(EXIT_FAILURE);
+            break;
         }
     }
 
     if (!ctx->dev)
-    {
-        printf("Usage: %s -d device [-v] [-p MQTT_USER_CONF]\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
+        goto err;
+    
     if (!ctx->mqtt_conf_path)
-    {
-        ctx->mqtt_conf_path = MQTT_CONFIG_FILE;
-    }
+        goto err;
+
+    return 0;
+err:
+    printf("Usage: %s -d IFACE -c MQTT_CONFIG\n", argv[0]);
+    return -1;
 }
 
 // send json formatted string
@@ -234,10 +232,14 @@ int main(int argc, char *argv[])
 
     signal(SIGTERM, sig_handler);
 
-    pcap_init(PCAP_CHAR_ENC_UTF_8, NULL);
-
     ctx = malloc(sizeof(struct scanner_client_ctx));
     memset(ctx, 0, sizeof(struct scanner_client_ctx));
+
+    if (parse_args(argc, argv))
+        return -1;
+
+    pcap_init(PCAP_CHAR_ENC_UTF_8, NULL);
+
     pthread_mutex_init(&shared.lock, NULL);
     ctx->registered = 0;
     shared.stop = 0;
@@ -247,8 +249,6 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to allocate memory for context\n");
         return EXIT_FAILURE;
     }
-
-    parse_args(argc, argv);
 
     if ((ret = mqtt_setup(ctx->mqtt_conf_path, &msg_recv_cb)))
         goto mqtt_err;

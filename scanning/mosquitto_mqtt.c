@@ -210,6 +210,7 @@ int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb)
     if (ctx && ctx->mosquitto)
         return MOSQ_ERR_ALREADY_EXISTS;
     ctx = malloc(sizeof(struct mqtt_ctx));
+    memset(ctx, 0, sizeof(struct mqtt_ctx));
     pthread_mutex_init(&ctx->lock, NULL);
 
     if ((ret = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS)
@@ -220,9 +221,7 @@ int mqtt_setup(char *mqtt_conf_path, mqtt_cb on_msg_cb)
 
     ctx->on_message = on_msg_cb;
 
-    ret = mqtt_read_config(mqtt_conf_path);
-
-    if (ret)
+    if (( ret = mqtt_read_config(mqtt_conf_path)))
         return MOSQ_ERR_INVAL;
 
     ctx->mosquitto = mosquitto_new(NULL, true, NULL);
