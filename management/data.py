@@ -53,8 +53,8 @@ class ScannerStats:
     maximum: int = 0
 
     signal_buf: deque[int] = field(default_factory=deque)
-    variance_tmp_buf: deque[int] = field(default_factory=deque)
-    variance_buf: deque[int] = field(default_factory=deque)
+    variance_calc_buf: deque[int] = field(default_factory=deque)
+    variance_disp_buf: deque[int] = field(default_factory=deque)
     ts_buf: deque[int] = field(default_factory=deque)
     done: int = 0
 
