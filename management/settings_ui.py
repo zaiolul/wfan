@@ -39,7 +39,7 @@ class SettingsTab:
         with (
             ui.card()
             .classes(
-                "w-full items-center md:items-start md:w-1/3 col-span-6 row-span-3 "
+                "w-full items-center md:items-start md:w-1/2 col-span-6 row-span-3 "
             )
             .props("flat bordered dense")
         ):
@@ -49,7 +49,7 @@ class SettingsTab:
                 ui.button("Save", on_click=self._on_save)
             ui.separator()
             with ui.row().classes("w-full"):
-                with ui.column().classes("w-full md:w-1/2 shrink-0"):
+                with ui.column().classes("w-full md:w-1/2"):
                     with ui.column().classes("justify-center items-center"):
                         # Ignore any other options for now,
                         # TODO 5GHz (maybe)
@@ -86,14 +86,21 @@ class SettingsTab:
                             ).classes("text-lg")
 
                 with ui.column().classes("w-full md:w-1/3"):
-                    with ui.button(
-                        "Set results path",
-                        on_click=self._select_file_path,
-                        icon="folder",
-                    ).props('no-caps'):
-                        ui.tooltip(
-                            "Select directory where scanner data should be written."
-                        ).classes("text-lg")
+                    with ui.row():
+                        with ui.button(
+                            "Set results path",
+                            on_click=self._select_file_path,
+                            icon="folder",
+                        ).props('no-caps'):
+                            ui.tooltip(
+                                "Select directory where scanner data should be written."
+                            ).classes("text-lg")
+                            
+                        clear = ui.button(
+                            "Clear", on_click=self._clear_dir).props("flat")
+                        clear.bind_visibility_from(
+                            self.settings, "selected_dir", backward=lambda d: len(d) != 0
+                        )
 
                     self.dir_label = ui.label()
                     self.dir_label.set_text(
@@ -103,30 +110,29 @@ class SettingsTab:
                     )
                     self.dir_label.bind_text_from(
                         self.settings, "selected_dir")
-                    clear = ui.button(
-                        "Clear", on_click=self._clear_dir).props("flat")
-                    clear.bind_visibility_from(
-                        self.settings, "selected_dir", backward=lambda d: len(d) != 0
-                    )
+                      
 
             ui.separator()
             with ui.row().classes("w-full"):
-                ui.label("MQTT broker connection").classes("text-3xl")
-                with ui.column().classes("w-full md:w-1/2 shrink-0"):
-                    self.mqtt_ip = ui.input("Broker IP", value=self.settings.mqtt_ip, validation={
-                        "Not a valid IPv4 address": self._validate_ip
-                    }, on_change=self._on_mqtt_host_change)
+                ui.label("MQTT broker connection").classes("w-full text-3xl")
+               
+                self.mqtt_ip = ui.input("Broker IP", value=self.settings.mqtt_ip, validation={
+                    "Not a valid IPv4 address": self._validate_ip
+                }, on_change=self._on_mqtt_host_change)
 
-                    self.mqtt_port = ui.input("Port", value=self.settings.mqtt_port, validation={
-                        "Not a valid port (0-65535)": self._validate_port
-                    }, on_change=self._on_mqtt_port_change)
-
-                with ui.column().classes("w-full md:w-1/3"):
-                    ui.label("Connection status:").classes("text-lg")
-                    self.mqtt_status_label = ui.label().classes("text-bold")
-                    self._update_mqtt_status()
-                    Updates.REGISTER_TIMER_CALLBACK(
-                        ui.context.client.id, self._update_mqtt_status)
+                self.mqtt_port = ui.input("Port", value=self.settings.mqtt_port, validation={
+                    "Not a valid port (0-65535)": self._validate_port
+                }, on_change=self._on_mqtt_port_change)
+                ui.input("Username", value="manager")
+                ui.input("Password", value="manager", password=True)
+                
+            
+                ui.label("Connection status:").classes("text-lg")
+            
+                self.mqtt_status_label = ui.label()
+                self._update_mqtt_status()
+                Updates.REGISTER_TIMER_CALLBACK(
+                    ui.context.client.id, self._update_mqtt_status)
 
     async def _check_mqtt_conn(self):
         if not self.manager.client.get_status():
@@ -173,7 +179,6 @@ class SettingsTab:
         self.mqtt_status_label.classes.clear()
         self.mqtt_status_label.classes(
             f"text-{self.status_colors[self.mqtt_status]} text-lg")
-        print(str(self.mqtt_status))
         self.mqtt_status_label.update()
 
     def _clear_dir(self):
