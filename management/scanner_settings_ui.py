@@ -1,7 +1,6 @@
 from nicegui import ui
 import consts
 
-
 class ScannerSettings:
     def __init__(self, band, path):
         self.chans_24 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
@@ -11,6 +10,8 @@ class ScannerSettings:
         self.selected_band: int = band
         self.mqtt_ip: str = "127.0.0.1"
         self.mqtt_port: int = 1883
+        self.mqtt_user: str = ""
+        self.mqtt_password : str = ""
 
     def import_options(self):
         band = None
@@ -43,6 +44,10 @@ class ScannerSettings:
                         self.mqtt_ip = parts[1].rstrip()
                     case "mqtt_port":
                         self.mqtt_port = int(parts[1].rstrip())
+                    case "mqtt_user":
+                        self.mqtt_user = parts[1].rstrip()
+                    case "mqtt_password":
+                        self.mqtt_password = parts[1].rstrip()
             except:
                 print("Invalid settings config, use defaults")
                 return
@@ -63,4 +68,6 @@ class ScannerSettings:
                 f.write(f"results_dir={self.selected_dir}\n")
             f.write(f"mqtt_ip={self.mqtt_ip}\n")
             f.write(f"mqtt_port={self.mqtt_port}\n")
+            f.write(f"mqtt_user={self.mqtt_user}\n")
+            f.write(f"mqtt_password={self.mqtt_password}\n")
         ui.notify("Settings saved.")

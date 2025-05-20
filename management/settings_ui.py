@@ -7,6 +7,7 @@ import os
 from scanner_settings_ui import ScannerSettings
 from updates_ui import Updates
 
+
 class SettingsTab:
     def __init__(self, manager: Manager, settings: ScannerSettings):
         self.manager: Manager = manager
@@ -95,7 +96,7 @@ class SettingsTab:
                             ui.tooltip(
                                 "Select directory where scanner data should be written."
                             ).classes("text-lg")
-                            
+
                         clear = ui.button(
                             "Clear", on_click=self._clear_dir).props("flat")
                         clear.bind_visibility_from(
@@ -110,12 +111,11 @@ class SettingsTab:
                     )
                     self.dir_label.bind_text_from(
                         self.settings, "selected_dir")
-                      
 
             ui.separator()
             with ui.row().classes("w-full"):
                 ui.label("MQTT broker connection").classes("w-full text-3xl")
-               
+
                 self.mqtt_ip = ui.input("Broker IP", value=self.settings.mqtt_ip, validation={
                     "Not a valid IPv4 address": self._validate_ip
                 }, on_change=self._on_mqtt_host_change)
@@ -123,12 +123,13 @@ class SettingsTab:
                 self.mqtt_port = ui.input("Port", value=self.settings.mqtt_port, validation={
                     "Not a valid port (0-65535)": self._validate_port
                 }, on_change=self._on_mqtt_port_change)
-                ui.input("Username", value="manager")
-                ui.input("Password", value="manager", password=True)
-                
-            
+                ui.input("Username", value=self.settings.mqtt_user,
+                         on_change=self._on_mqtt_user_change)
+                ui.input("Password", value=self.settings.mqtt_password, password=True,
+                         on_change=self._on_mqtt_password_change)
+
                 ui.label("Connection status:").classes("text-lg")
-            
+
                 self.mqtt_status_label = ui.label()
                 self._update_mqtt_status()
                 Updates.REGISTER_TIMER_CALLBACK(
@@ -141,10 +142,19 @@ class SettingsTab:
     async def _conn_mqtt(self):
         def func():
             self.manager.client.try_connect(
-                self.settings.mqtt_ip, self.settings.mqtt_port, "manager", "manager"
+                self.settings.mqtt_ip, self.settings.mqtt_port, 
+                self.settings.mqtt_user, self.settings.mqtt_password
             )
 
         await run.io_bound(func)
+
+    def _on_mqtt_user_change(self, e: ValueChangeEventArguments):
+        self.settings.mqtt_user = e.value
+        self.changes_made = True
+
+    def _on_mqtt_password_change(self, e: ValueChangeEventArguments):
+        self.settings.mqtt_password = e.value
+        self.changes_made = True
 
     def _on_mqtt_host_change(self, e: ValueChangeEventArguments):
         self.settings.mqtt_ip = e.value
