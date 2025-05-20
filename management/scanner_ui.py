@@ -4,6 +4,7 @@ from data import ScannerState
 from manager import Manager
 from plotly import graph_objects as go
 import consts
+import datetime
 from nicegui.events import (
 
     GenericEventArguments,
@@ -126,6 +127,7 @@ class ScannerList:
                             y=[],
                             marker=dict(color=self.scanner_colors[id]),
                             name=id,
+                            mode="lines",
                         )
 
                 scanner = self.manager.scanners[id]
@@ -206,12 +208,10 @@ class ScannerList:
         self._update_plot()
 
     def _update_plot(self):
-        # self.fig.data = []
-
-        items = self.manager.scanners.items()
+        keys = self.manager.scanners.keys()
         xaxis = list()
 
-        for id, scanner in items:
+        for id in keys:
             sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(
                 id)
             if len(sig_buf) == 0:
@@ -231,12 +231,15 @@ class ScannerList:
             if len(ts_buf) > len(xaxis):
                 xaxis = ts_buf
 
-        if len(items) > 0 and not self.saved_layout:
+        if len(keys) > 0 and not self.saved_layout:
             if len(xaxis) > consts.X_AXIS_SPAN:
                 self.fig.update_xaxes(
                     range=[xaxis[-consts.X_AXIS_SPAN], xaxis[-1]])
             elif len(xaxis) > 0:
-                self.fig.update_xaxes(range=[xaxis[0], xaxis[-1]])
+                # on scan start, before graph can be filled with enough data, show empty space
+                # better than having squished graph before it starts shifting in case above
+                time_before = xaxis[-1] - datetime.timedelta(seconds=consts.X_AXIS_SPAN / 10)
+                self.fig.update_xaxes(range=[time_before, xaxis[-1]])
         elif self.saved_layout:
             self.fig.layout = self.saved_layout
 
