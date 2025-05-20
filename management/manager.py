@@ -153,7 +153,26 @@ class Manager:
             f.write(f"{timestamps[i]};{variances[i]:2};{signals[i]}\n")
         f.close()
 
+    def _init_scanner_stats(self, id: str):
+        self.scanners[id].stats = ScannerStats()
+        self.scanners[id].stats.signal_buf = deque(
+            maxlen=consts.PKT_STATS_BUF_SIZE
+        )
+        self.scanners[id].stats.variance_calc_buf = deque(
+            maxlen=consts.PKT_STATS_BUF_SIZE
+        )
+        self.scanners[id].stats.variance_disp_buf = deque(
+            maxlen=consts.PKT_STATS_BUF_SIZE
+        )  # adjust for "smoothness"
+        self.scanners[id].stats.ts_buf = deque(
+            maxlen=consts.PKT_STATS_BUF_SIZE)
+        self.scanners[id].stats.done = False
+
     async def _handle_data(self, id: str, payload: str):
+        if id not in self.scanners.keys():
+            print(f"Received data from {id} but it's not registered, ignore.")
+            return
+
         json_data = json.loads(payload)
 
         data = json_data["data"]
@@ -226,18 +245,7 @@ class Manager:
                     return
 
                 self.scanners[id] = ScannerClient(id)
-                self.scanners[id].stats.signal_buf = deque(
-                    maxlen=consts.PKT_STATS_BUF_SIZE
-                )
-                self.scanners[id].stats.variance_calc_buf = deque(
-                    maxlen=consts.PKT_STATS_BUF_SIZE
-                )
-                self.scanners[id].stats.variance_disp_buf = deque(
-                    maxlen=consts.PKT_STATS_BUF_SIZE
-                )  # adjust for "smoothness"
-                self.scanners[id].stats.ts_buf = deque(
-                    maxlen=consts.PKT_STATS_BUF_SIZE)
-
+                self._init_scanner_stats(id)
                 self.client.mqtt_client.publish(topic_regack, None, 1)
                 self.update_scanner_display_stats(id, reset=True, add=False)
 
@@ -297,22 +305,23 @@ class Manager:
         self.state = ManagerState.IDLE
 
     def do_capture_start(self):
-        self.update_scanner_display_stats("", reset=True, add=False)
+        for id in self.scanners.keys():
+            self._init_scanner_stats(id)
+            self.update_scanner_display_stats(id, reset=True, add=False)
 
     def do_capture_stop(self):
         for id, scanner in self.scanners.items():
             scanner.state = ScannerState.SCANNER_IDLE
             scanner.finished_scan = False
             scanner.scanning = False
+            scanner.stats = ScannerStats()
         self.state = ManagerState.IDLE
 
     async def mqtt_send(self, topic: str, payload: str = None, qos: int = 1):
         # clean up for upcoming states
         self.common_aps.clear()
         self.ap_counters.clear()
-        for scanner in self.scanners.values():
-            scanner.finished_scan = False
-            scanner.state = ScannerState.SCANNER_IDLE
+
         self.client.mqtt_client.publish(
             topic=topic, payload=payload, qos=qos, retain=False
         )
