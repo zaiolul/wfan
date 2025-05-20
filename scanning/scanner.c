@@ -135,7 +135,7 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
         ctx->registered = 0;
     }
 
-    cJSON_free(json);
+    cJSON_Delete(json);
 }
 
 void handle_cmd_id(char *cmd, void *data, unsigned int len)

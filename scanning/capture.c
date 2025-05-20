@@ -526,7 +526,7 @@ static void _do_send()
         free(msg);
     }
 
-    cJSON_free(json);
+    cJSON_Delete(json);
     cap_next_state(next_state);
 }
 
