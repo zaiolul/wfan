@@ -27,6 +27,12 @@ class ScannerList:
             ScannerState.SCANNER_IDLE: "orange-8",
             ScannerState.SCANNER_CRASHED: "red-8",
         }
+        
+        self.scanner_state_descs = {
+            ScannerState.SCANNER_IDLE:"Scanner is idle.",
+            ScannerState.SCANNER_CRASHED: "Scanner has crashed, waiting to recover...",
+            ScannerState.SCANNER_SCANNING: "Scanner is active and capturing.",
+        }
 
         self.fig.update_layout(
             margin=dict(l=10, r=0, t=20, b=0),
@@ -44,6 +50,7 @@ class ScannerList:
 
         self.saved_layout: go.Layout = None
         self.scanner_states: dict[str, bool] = dict()
+        self.scatter_colors = {color:False for color in plot_cl.qualitative.Plotly}
         self.scanner_colors: dict[str, str] = dict()
 
     def display_list(self):
@@ -89,6 +96,12 @@ class ScannerList:
         Updates.REGISTER_TIMER_CALLBACK(
             ui.context.client.id, self._update_plot)
 
+    def _next_scatter_color(self):
+        for color in self.scatter_colors:
+            if not self.scatter_colors[color]:
+                self.scatter_colors[color] = True
+                return color
+    
     def update_scanners(self, args=None):
         if len(self.scanner_states.keys()) == len(self.manager.scanners.keys()):
             return
@@ -99,6 +112,8 @@ class ScannerList:
                      if id not in intersect]
         new_fig_data = list(self.fig.data)
         for id in to_remove:
+            self.scatter_colors[self.scanner_colors[id]] = False
+            self.scanner_colors.pop(id)
             self.scanner_states.pop(id)
             for i, data in enumerate(new_fig_data):
                 if data.name == id:
@@ -116,7 +131,7 @@ class ScannerList:
             for i, id in enumerate(self.manager.scanners):
                 if id not in self.scanner_states:
                     self.scanner_states[id] = True
-                    self.scanner_colors[id] = plot_cl.qualitative.Plotly[i]
+                    self.scanner_colors[id] = self._next_scatter_color()
                     if len(self.settings.selected_dir) > 0:
                         self.manager.update_scanner_result_path(
                             id, self.settings.selected_dir
@@ -168,13 +183,14 @@ class ScannerList:
                         ).props("caption")
 
                     with ui.item_section().props("side"):
-                        ui.icon("circle")
+                        ui.icon("circle").props(f"id={id}")
 
                     def _update_scanner_state_icon():
                         for child in self.scanner_list.descendants():
                             if child.props.get("name") == "circle":
+                                scanner_id = child.props.get("id")
                                 child.props["color"] = self.scanner_state_colors[
-                                    scanner.state
+                                    self.manager.scanners[scanner_id].state
                                 ]
                             child.update()
 
@@ -183,19 +199,8 @@ class ScannerList:
                         ui.context.client.id, _update_scanner_state_icon
                     )
 
-                    state_desc = ""
-                    match scanner.state:
-                        case ScannerState.SCANNER_IDLE:
-                            state_desc = "Scanner is idle."
-                        case ScannerState.SCANNER_CRASHED:
-                            state_desc = "Scanner has crashed, waiting to recover..."
-                        case ScannerState.SCANNER_SCANNING:
-                            state_desc = "Scanner is active and capturing."
                     with ui.tooltip().classes("text-lg"):
-                        ui.label(f"{state_desc}")
-                        if scanner.state == ScannerState.SCANNER_SCANNING:
-                            ui.label(
-                                f"Average RSSI: {scanner.stats.average}\n")
+                        ui.label().bind_text_from(scanner, "state", lambda s: f"{self.scanner_state_descs[s]}")
 
     def _on_scanner_select(self, e: ClickEventArguments, id):
         self.scanner_states[id] = not self.scanner_states[id]
@@ -212,8 +217,7 @@ class ScannerList:
         xaxis = list()
 
         for id in keys:
-            sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(
-                id)
+            sig_buf, var_buf, ts_buf = self.manager.fetch_scanner_display_stats(id)
             if len(sig_buf) == 0:
                 continue
 
