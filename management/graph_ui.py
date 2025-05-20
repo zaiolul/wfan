@@ -37,7 +37,7 @@ class GraphTab:
                     bssid_label = ui.label().classes("text-xl")
 
                     ssid_label.bind_text_from(self.manager, "selected_ap_obj", lambda ap: (
-                        f"Selected AP: {ap["ssid"]}" if ap else ""))
+                        f"AP: {ap["ssid"]}" if ap else ""))
 
                     bssid_label.bind_text_from(self.manager, "selected_ap_obj", lambda ap: (
                         f"({ap["bssid"]})" if ap else ""))

@@ -213,7 +213,7 @@ class Manager:
     def _handle_client_crash(self, id: str):
         self.scanners.pop(id)
 
-    async def _handle_cmd(self, cmd: str, id: str):
+    def _handle_cmd(self, cmd: str, id: str):
         if len(id) == 0:
             print("Invalid id")
             return
@@ -256,7 +256,9 @@ class Manager:
                     return
                 scanner = self.scanners[id]
                 self.scanners[id].state = ScannerState.SCANNER_CRASHED
-                scanner.crash_timer = await self._handle_scanner_crash(id)
+                scanner.crash_timer = asyncio.create_task(
+                    self._handle_scanner_crash(id)
+                )
                 
                 if all(
                     s.state == ScannerState.SCANNER_CRASHED
@@ -285,7 +287,7 @@ class Manager:
         if topic_matches_sub(consts.MANAGER_SUB_DATA, topic):
             await self._handle_data(topic_parts[1], payload)
         elif topic_matches_sub(consts.MANAGER_SUB_CMD_ID, topic):
-            await self._handle_cmd(topic_parts[1], topic_parts[2])
+            self._handle_cmd(topic_parts[1], topic_parts[2])
 
     async def receive_next(self):
         try:
@@ -327,7 +329,9 @@ class Manager:
         # clean up for upcoming states
         self.common_aps.clear()
         self.ap_counters.clear()
-
+        for id, scanner in self.scanners.items():
+            scanner.finished_scan = False
+            scanner.scanning = False
         self.client.mqtt_client.publish(
             topic=topic, payload=payload, qos=qos, retain=False
         )
