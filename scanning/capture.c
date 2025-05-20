@@ -557,7 +557,7 @@ void cap_set_ap(struct wifi_ap_info *ap)
     if (!ctx || !ap)
         return;
 
-    printf("recv ap: %s\n", ap->ssid);
+    // printf("recv ap: %s\n", ap->ssid);
     
     memcpy(&ctx->selected_ap, ap, sizeof(struct wifi_ap_info));
 

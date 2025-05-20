@@ -115,7 +115,6 @@ void handle_cmd_all(char *cmd, void *data, unsigned int len)
     else if (!strcmp(cmd, CMD_SELECT_AP))
     {
         json = cJSON_Parse(data);
-        printf("%s\n", cJSON_Print(json));
         strncpy(bssid_str, cJSON_GetObjectItem(json, "bssid")->valuestring,
                 sizeof(bssid_str));
         strncpy((char *)ap.ssid, cJSON_GetObjectItem(json, "ssid")->valuestring,
