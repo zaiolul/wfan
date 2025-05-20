@@ -105,7 +105,9 @@ class ScannerList:
     def update_scanners(self, args=None):
         if len(self.scanner_states.keys()) == len(self.manager.scanners.keys()):
             return
-
+        # for color in self.scatter_colors.keys():
+        #     self.scatter_colors[color] = False
+            
         # find what changed (client added/removed), update scanner list and plot entries accordingly
         intersect = self.scanner_states.keys() & self.manager.scanners.keys()
         to_remove = [id for id in self.scanner_states.keys()
@@ -131,7 +133,9 @@ class ScannerList:
             for i, id in enumerate(self.manager.scanners):
                 if id not in self.scanner_states:
                     self.scanner_states[id] = True
-                    self.scanner_colors[id] = self._next_scatter_color()
+                    if id not in self.scanner_colors.keys():
+                        self.scanner_colors[id] = self._next_scatter_color()
+                    
                     if len(self.settings.selected_dir) > 0:
                         self.manager.update_scanner_result_path(
                             id, self.settings.selected_dir
@@ -189,6 +193,8 @@ class ScannerList:
                         for child in self.scanner_list.descendants():
                             if child.props.get("name") == "circle":
                                 scanner_id = child.props.get("id")
+                                if scanner_id not in self.manager.scanners.keys():
+                                    continue
                                 child.props["color"] = self.scanner_state_colors[
                                     self.manager.scanners[scanner_id].state
                                 ]
