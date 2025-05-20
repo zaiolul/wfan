@@ -5,7 +5,7 @@ SCANNER_SRC=./scanning
 MANAGER_SRC=./management
 INCLUDE_DIR=$(SCANNER_SRC)/include
 INSTALL_DIR=/usr/local/bin
-SCAN_SCRIPT=start_scanner.sh
+SCAN_SCRIPT=scanner_config.sh
 
 MANAGER_DESKTOP_ENTRY=wfan_manager.desktop
 MANAGER_ICON=wfan_icon.png
@@ -21,9 +21,14 @@ OBJS_JSON=$(SRCS_JSON:$(SCANNER_SRC)/json/%.c=$(SCANNER_SRC)/json/%.o)
 
 LIBS_SCAN=$(LIBS_COM) -lpcap -lnl-3 -lnl-genl-3 -lrt -lmosquitto -lpthread
 
-all: scanner
+all: scanner manager
 
 scanner: $(EXE_SCANNER)
+manager: $(EXE_MANAGER)
+
+$(EXE_MANAGER): $(MANAGER_SRC)/main.py
+	ln -sf $(realpath $(MANAGER_SRC)/main.py) $(EXE_MANAGER)
+	chmod +x $(INSTALL_DIR)/$(EXE_MANAGER)
 
 $(EXE_SCANNER): $(OBJS_SCAN) $(OBJS_JSON)
 	$(CC) $^ -o $@ $(LIBS_SCAN)
@@ -43,11 +48,9 @@ uninstall_scanner:
 	rm -f $(INSTALL_DIR)/$(EXE_SCANNER)
 	rm -f $(INSTALL_DIR)/$(SCAN_SCRIPT)
 
-install_manager:
+install_manager: $(EXE_MANAGER)
 	mkdir -p $(INSTALL_DIR)
-	ln -sf $(realpath $(MANAGER_SRC)/main.py) $(INSTALL_DIR)/$(EXE_MANAGER)
-	chmod +x $(INSTALL_DIR)/$(EXE_MANAGER)
-	
+	cp -P $(EXE_MANAGER) $(INSTALL_DIR)/$(EXE_MANAGER)
 	cp $(MANAGER_SRC)/files/$(MANAGER_DESKTOP_ENTRY) $(DESKTOP_DIR)
 	cp $(MANAGER_SRC)/files/$(MANAGER_ICON) $(ICON_DIR)
 	
@@ -56,6 +59,10 @@ uninstall_manager:
 	rm -f $(DESKTOP_DIR)/$(MANAGER_DESKTOP_ENTRY)
 	rm -f $(ICON_DIR)/$(MANAGER_ICON)
 	
+clean_bin: clean
+	rm -f $(EXE_SCANNER)
+	rm -f $(EXE_MANAGER)
+
 clean:
 	rm -f $(SCANNER_SRC)/*.o
 	rm -f $(SCANNER_SRC)/json/*.o
