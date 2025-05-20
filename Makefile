@@ -28,7 +28,7 @@ manager: $(EXE_MANAGER)
 
 $(EXE_MANAGER): $(MANAGER_SRC)/main.py
 	ln -sf $(realpath $(MANAGER_SRC)/main.py) $(EXE_MANAGER)
-	chmod +x $(INSTALL_DIR)/$(EXE_MANAGER)
+	chmod +x $(EXE_MANAGER)
 
 $(EXE_SCANNER): $(OBJS_SCAN) $(OBJS_JSON)
 	$(CC) $^ -o $@ $(LIBS_SCAN)
