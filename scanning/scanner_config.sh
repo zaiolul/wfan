@@ -1,5 +1,4 @@
 #!/bin/bash
-EXE=./wfan_scan
 
 [ $(id -u) -ne 0 ] && {
     echo "Must be run as root"
@@ -82,6 +81,9 @@ setup_monitor() {
     fi
 
     ip link set $MONITOR_DEV up
+
+    echo "Monitor interface $MONITOR_DEV is set up."
+    echo "You can start scanner with: wfan_scanner -d $MONITOR_DEV"
 }
 
 get_phy
@@ -89,7 +91,3 @@ get_phy
 stop_proc
 
 setup_monitor
-
-echo "Starting program"
-
-[ -e "$EXE" ] && exec $EXE -d $MONITOR_DEV
